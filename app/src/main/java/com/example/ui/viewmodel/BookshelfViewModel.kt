@@ -26,6 +26,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -58,7 +59,11 @@ sealed interface AudioPrepUiState {
 sealed interface PageLinesUiState {
     data object Idle : PageLinesUiState
     data object Loading : PageLinesUiState
-    data class Success(val pageIndex: Int, val lines: List<String>) : PageLinesUiState
+    data class Success(
+        val pageIndex: Int,
+        val lines: List<String>,
+        val lineYBounds: List<Pair<Float, Float>> = emptyList()
+    ) : PageLinesUiState
     data class Error(val message: String) : PageLinesUiState
 }
 
@@ -170,6 +175,9 @@ class BookshelfViewModel(
 
     private val audioTextCache = mutableMapOf<String, String>()
     private val pageLinesCache = mutableMapOf<String, List<String>>()
+    private val pageLineBoundsCache = mutableMapOf<String, List<Pair<Float, Float>>>()
+    private var audioPrepJob: Job? = null
+    private var loadLinesJob: Job? = null
 
     private val _uiMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val uiMessages = _uiMessages.asSharedFlow()
@@ -304,7 +312,7 @@ class BookshelfViewModel(
             _summaryState.value = SummaryUiState.Loading
             val pdfFile = getLocalPdfFile(book.id).takeIf { it.exists() }
             val fallbackBitmaps = mutableListOf<Bitmap>()
-            if (pdfFile != null && pdfFile.length() > 12_000_000L) {
+            if (pdfFile != null) {
                 val session = PdfPageSession(pdfFile)
                 runCatching {
                     val count = session.open()
@@ -357,13 +365,15 @@ class BookshelfViewModel(
             )
             return
         }
-        if (_audioPrepState.value is AudioPrepUiState.Loading) return
-        viewModelScope.launch {
+        audioPrepJob?.cancel()
+        audioPrepJob = viewModelScope.launch {
             _audioPrepState.value = AudioPrepUiState.Loading
             val languageOption = WorldwideLanguages.findByTag(languageTag)
+            val pdfFile = getLocalPdfFile(book.id).takeIf { it.exists() }
             aiService.extractPageTextForAudio(
+                pdfFile = pdfFile,
+                pageIndex = pageIndex,
                 pageBitmap = pageBitmap,
-                pageNumber = pageIndex + 1,
                 targetLanguage = languageOption
             ).fold(
                 onSuccess = { spokenText ->
@@ -391,11 +401,15 @@ class BookshelfViewModel(
     ) {
         val cacheKey = "$bookId:$pageIndex:${languageTag.lowercase()}"
         if (audioTextCache.containsKey(cacheKey)) return
+        // Only prewarm locally for default language to preserve cloud AI quota
+        if (!languageTag.equals("en", ignoreCase = true)) return
         viewModelScope.launch {
             val languageOption = WorldwideLanguages.findByTag(languageTag)
+            val pdfFile = getLocalPdfFile(bookId).takeIf { it.exists() }
             aiService.extractPageTextForAudio(
+                pdfFile = pdfFile,
+                pageIndex = pageIndex,
                 pageBitmap = pageBitmap,
-                pageNumber = pageIndex + 1,
                 targetLanguage = languageOption
             ).onSuccess { spokenText ->
                 audioTextCache[cacheKey] = spokenText
@@ -412,22 +426,28 @@ class BookshelfViewModel(
         val cacheKey = "$bookId:$pageIndex"
         if (!forceRefresh) {
             val cached = pageLinesCache[cacheKey]
+            val cachedBounds = pageLineBoundsCache[cacheKey].orEmpty()
             if (cached != null) {
-                _pageLinesState.value = PageLinesUiState.Success(pageIndex, cached)
+                _pageLinesState.value = PageLinesUiState.Success(pageIndex, cached, cachedBounds)
                 return
             }
         }
-        if (_pageLinesState.value is PageLinesUiState.Loading) return
-        viewModelScope.launch {
+        loadLinesJob?.cancel()
+        loadLinesJob = viewModelScope.launch {
             _pageLinesState.value = PageLinesUiState.Loading
             _lineTranslationState.value = LineTranslationUiState.Idle
+            val pdfFile = getLocalPdfFile(bookId).takeIf { it.exists() }
             aiService.extractPageLines(
-                pageBitmap = pageBitmap,
-                pageNumber = pageIndex + 1
+                pdfFile = pdfFile,
+                pageIndex = pageIndex,
+                pageBitmap = pageBitmap
             ).fold(
-                onSuccess = { lines ->
+                onSuccess = { extracted ->
+                    val lines = extracted.map { it.text }
+                    val bounds = extracted.map { it.topFraction to it.bottomFraction }
                     pageLinesCache[cacheKey] = lines
-                    _pageLinesState.value = PageLinesUiState.Success(pageIndex, lines)
+                    pageLineBoundsCache[cacheKey] = bounds
+                    _pageLinesState.value = PageLinesUiState.Success(pageIndex, lines, bounds)
                 },
                 onFailure = { err ->
                     _pageLinesState.value = PageLinesUiState.Error(

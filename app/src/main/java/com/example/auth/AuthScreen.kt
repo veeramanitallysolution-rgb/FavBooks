@@ -64,8 +64,8 @@ import com.example.R
 import com.example.data.model.WorldwideLanguages
 import com.example.data.repository.ThemePreferencesStore
 import com.example.ui.components.WorldwideLanguageSheet
-import com.example.ui.theme.SunlitTopMint
-import com.example.ui.theme.SunlitTopYellow
+import com.example.ui.theme.NavyMidGradientLight
+import com.example.ui.theme.NavyTopGradientLight
 import kotlinx.coroutines.launch
 
 private enum class AuthTabMode(val label: String) {
@@ -123,8 +123,8 @@ fun AuthScreen(
                 if (isLight) {
                     Modifier.background(
                         Brush.verticalGradient(
-                            0.0f to SunlitTopYellow.copy(alpha = 0.65f),
-                            0.35f to SunlitTopMint.copy(alpha = 0.35f),
+                            0.0f to NavyTopGradientLight.copy(alpha = 0.72f),
+                            0.35f to NavyMidGradientLight.copy(alpha = 0.45f),
                             0.75f to backgroundColor
                         )
                     )

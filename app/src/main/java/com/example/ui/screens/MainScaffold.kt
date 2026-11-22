@@ -86,14 +86,15 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.R
 import com.example.auth.signOut
+import com.example.data.ai.BookAiService
 import com.example.data.model.BookItem
 import com.example.data.model.WorldwideLanguages
 import com.example.data.pdf.PdfStorageManager
 import com.example.data.repository.BookshelfRepository
 import com.example.data.repository.ThemePreferencesStore
 import com.example.ui.components.WorldwideLanguageSheet
-import com.example.ui.theme.SunlitTopMint
-import com.example.ui.theme.SunlitTopYellow
+import com.example.ui.theme.NavyMidGradientLight
+import com.example.ui.theme.NavyTopGradientLight
 import com.example.ui.viewmodel.BookshelfViewModel
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
@@ -140,7 +141,8 @@ fun AuthenticatedLibraryRoot(
                     repository = BookshelfRepository(db),
                     pdfStorage = PdfStorageManager(app),
                     themeStore = themeStore,
-                    currentUserId = currentUserId
+                    currentUserId = currentUserId,
+                    aiService = BookAiService(app)
                 )
             }
         }
@@ -230,8 +232,8 @@ fun AuthenticatedLibraryRoot(
                     if (isLight) {
                         Modifier.background(
                             Brush.verticalGradient(
-                                0.0f to SunlitTopYellow.copy(alpha = 0.55f),
-                                0.22f to SunlitTopMint.copy(alpha = 0.30f),
+                                0.0f to NavyTopGradientLight.copy(alpha = 0.65f),
+                                0.22f to NavyMidGradientLight.copy(alpha = 0.45f),
                                 0.45f to baseBackground
                             )
                         )

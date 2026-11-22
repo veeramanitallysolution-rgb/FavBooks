@@ -1,6 +1,8 @@
 package com.example.audio
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +29,7 @@ data class AudioPlaybackState(
 
 class BookAudioPlayer(context: Context) : Closeable {
 
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val _state = MutableStateFlow(AudioPlaybackState())
     val state: StateFlow<AudioPlaybackState> = _state.asStateFlow()
 
@@ -36,18 +39,28 @@ class BookAudioPlayer(context: Context) : Closeable {
     private var currentLocale: Locale = Locale.ENGLISH
     private var speechRate: Float = 1.0f
     private var onCompletedCallback: (() -> Unit)? = null
+    private var pendingPlay: Triple<String, String, (() -> Unit)?>? = null
 
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                configureListener()
-                applyLanguage(currentLocale)
-                _state.value = _state.value.copy(isReady = true)
-            } else {
-                _state.value = _state.value.copy(
-                    isReady = false,
-                    statusNote = "Device speech engine unavailable."
-                )
+            mainHandler.post {
+                if (status == TextToSpeech.SUCCESS) {
+                    configureListener()
+                    applyLanguage(currentLocale)
+                    _state.value = _state.value.copy(isReady = true)
+                    val queued = pendingPlay
+                    pendingPlay = null
+                    if (queued != null) {
+                        playText(queued.first, queued.second, queued.third)
+                    }
+                } else {
+                    pendingPlay = null
+                    _state.value = _state.value.copy(
+                        isReady = false,
+                        isPlaying = false,
+                        statusNote = "Device speech engine unavailable. Please enable Google Speech Services in Android settings."
+                    )
+                }
             }
         }
     }
@@ -76,7 +89,9 @@ class BookAudioPlayer(context: Context) : Closeable {
                         isPaused = false,
                         currentChunkIndex = (chunks.size - 1).coerceAtLeast(0)
                     )
-                    onCompletedCallback?.invoke()
+                    mainHandler.post {
+                        onCompletedCallback?.invoke()
+                    }
                 }
             }
 
@@ -108,7 +123,10 @@ class BookAudioPlayer(context: Context) : Closeable {
             statusNote = if (supported) null else "Voice pack for ${locale.displayName} not installed on device; using default voice fallback."
         )
         if (!supported) {
-            engine.setLanguage(Locale.ENGLISH)
+            val fallbackRes = engine.setLanguage(Locale.ENGLISH)
+            if (fallbackRes == TextToSpeech.LANG_MISSING_DATA || fallbackRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+                engine.setLanguage(Locale.getDefault())
+            }
         }
     }
 
@@ -127,6 +145,15 @@ class BookAudioPlayer(context: Context) : Closeable {
         onComplete: (() -> Unit)? = null
     ) {
         onCompletedCallback = onComplete
+        if (!_state.value.isReady) {
+            pendingPlay = Triple(text, languageTag, onComplete)
+            setLanguage(languageTag)
+            _state.value = _state.value.copy(
+                statusNote = "Initializing speech engine…"
+            )
+            return
+        }
+
         setLanguage(languageTag)
         chunks = splitIntoSentences(text, currentLocale)
         currentIndex = 0
@@ -136,7 +163,8 @@ class BookAudioPlayer(context: Context) : Closeable {
                 isPaused = false,
                 totalChunks = 0,
                 currentChunkIndex = 0,
-                currentChunkText = ""
+                currentChunkText = "",
+                statusNote = "No speakable text found on this page."
             )
             return
         }
@@ -149,6 +177,7 @@ class BookAudioPlayer(context: Context) : Closeable {
     }
 
     fun pause() {
+        pendingPlay = null
         tts?.stop()
         _state.value = _state.value.copy(
             isPlaying = false,
@@ -162,6 +191,7 @@ class BookAudioPlayer(context: Context) : Closeable {
     }
 
     fun stop() {
+        pendingPlay = null
         tts?.stop()
         currentIndex = 0
         _state.value = _state.value.copy(
@@ -176,10 +206,19 @@ class BookAudioPlayer(context: Context) : Closeable {
         if (index !in chunks.indices) return
         currentIndex = index
         engine.setSpeechRate(speechRate)
-        engine.speak(chunks[index], TextToSpeech.QUEUE_FLUSH, null, "chunk_$index")
+        val status = engine.speak(chunks[index], TextToSpeech.QUEUE_FLUSH, null, "chunk_$index")
+        if (status == TextToSpeech.ERROR) {
+            _state.value = _state.value.copy(
+                isPlaying = false,
+                isPaused = false,
+                statusNote = "Could not start speech playback on this device."
+            )
+        }
     }
 
     override fun close() {
+        pendingPlay = null
+        mainHandler.removeCallbacksAndMessages(null)
         runCatching {
             tts?.stop()
             tts?.shutdown()

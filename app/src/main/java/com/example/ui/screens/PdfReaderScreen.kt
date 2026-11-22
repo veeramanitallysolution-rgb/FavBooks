@@ -11,9 +11,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -54,6 +56,9 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.ChromeReaderMode
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -61,7 +66,9 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
@@ -89,6 +96,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -106,11 +114,15 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -195,6 +207,9 @@ fun PdfReaderScreen(
     var showThemeSheet by remember { mutableStateOf(false) }
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showLineTranslatorSheet by remember { mutableStateOf(false) }
+    var lineInspectorPageIndex by remember { mutableIntStateOf(currentPageIndex) }
+    var pendingLongPressYFraction by remember { mutableStateOf<Float?>(null) }
+    val haptic = LocalHapticFeedback.current
 
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
@@ -204,6 +219,22 @@ fun PdfReaderScreen(
     var isAnimatingTurn by remember { mutableStateOf(false) }
 
     val renderedBitmaps = remember { mutableStateMapOf<Int, Bitmap>() }
+
+    fun openLineInspectorForPage(targetPage: Int, yFraction: Float?, forceRefresh: Boolean = false) {
+        val safePage = targetPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        lineInspectorPageIndex = safePage
+        pendingLongPressYFraction = yFraction
+        showLineTranslatorSheet = true
+        scope.launch {
+            val bmp = renderedBitmaps[safePage]
+                ?: session.renderPage(safePage, 1080)?.also {
+                    renderedBitmaps[safePage] = it
+                }
+            if (bmp != null) {
+                viewModel.loadPageLines(book.id, safePage, bmp, forceRefresh = forceRefresh)
+            }
+        }
+    }
 
     DisposableEffect(session) {
         onDispose {
@@ -445,6 +476,24 @@ fun PdfReaderScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(aspect)
+                                    .pointerInput(pageIdx) {
+                                        detectTapGestures(
+                                            onDoubleTap = {
+                                                zoomScale = if (zoomScale > 1.05f) 1f else 1.75f
+                                            },
+                                            onTap = {
+                                                showControls = !showControls
+                                                isFullscreen = !showControls
+                                            },
+                                            onLongPress = { offset ->
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                val yFrac = if (size.height > 0) {
+                                                    (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                                                } else null
+                                                openLineInspectorForPage(pageIdx, yFrac)
+                                            }
+                                        )
+                                    }
                             ) {
                                 PdfPageSheet(
                                     bitmap = bmp,
@@ -492,6 +541,18 @@ fun PdfReaderScreen(
                                         }
                                     }
                                 }
+                            },
+                            onLongPress = { offset ->
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val tappedPage = if (isTwoPageSpread && offset.x > viewportWidthPx * 0.5f && rightPageIndex in 0 until pageCount) {
+                                    rightPageIndex
+                                } else {
+                                    leftPageIndex
+                                }
+                                val yFrac = if (size.height > 0) {
+                                    (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                                } else null
+                                openLineInspectorForPage(tappedPage, yFrac)
                             }
                         )
                     }
@@ -685,16 +746,7 @@ fun PdfReaderScreen(
                     // Select lines & translate
                     IconButton(
                         onClick = {
-                            showLineTranslatorSheet = true
-                            scope.launch {
-                                val bmp = renderedBitmaps[currentPageIndex]
-                                    ?: session.renderPage(currentPageIndex, 1080)?.also {
-                                        renderedBitmaps[currentPageIndex] = it
-                                    }
-                                if (bmp != null) {
-                                    viewModel.loadPageLines(book.id, currentPageIndex, bmp)
-                                }
-                            }
+                            openLineInspectorForPage(currentPageIndex, null)
                         },
                         modifier = Modifier.testTag("reader_translate_lines_button")
                     ) {
@@ -905,16 +957,7 @@ fun PdfReaderScreen(
                             color = MaterialTheme.colorScheme.primaryContainer,
                             modifier = Modifier
                                 .clickable {
-                                    showLineTranslatorSheet = true
-                                    scope.launch {
-                                        val bmp = renderedBitmaps[currentPageIndex]
-                                            ?: session.renderPage(currentPageIndex, 1080)?.also {
-                                                renderedBitmaps[currentPageIndex] = it
-                                            }
-                                        if (bmp != null) {
-                                            viewModel.loadPageLines(book.id, currentPageIndex, bmp)
-                                        }
-                                    }
+                                    openLineInspectorForPage(currentPageIndex, null)
                                 }
                                 .testTag("bottom_translate_lines_pill")
                         ) {
@@ -1083,38 +1126,35 @@ fun PdfReaderScreen(
 
     if (showLineTranslatorSheet) {
         PageLineTranslatorSheet(
-            pageNumber = currentPageIndex + 1,
+            pageNumber = lineInspectorPageIndex + 1,
             linesState = pageLinesState,
             translationState = lineTranslationState,
             targetLanguageTag = preferredLanguageTag,
+            initialLongPressYFraction = pendingLongPressYFraction,
             onReloadLines = {
-                scope.launch {
-                    val bmp = renderedBitmaps[currentPageIndex]
-                        ?: session.renderPage(currentPageIndex, 1080)?.also {
-                            renderedBitmaps[currentPageIndex] = it
-                        }
-                    if (bmp != null) {
-                        viewModel.loadPageLines(book.id, currentPageIndex, bmp, forceRefresh = true)
-                    }
-                }
+                openLineInspectorForPage(lineInspectorPageIndex, null, forceRefresh = true)
             },
             onOpenLanguagePicker = onOpenLanguagePicker,
             onTranslateLines = { chosenLines ->
                 viewModel.translateSelectedLines(chosenLines, preferredLanguageTag)
             },
             onClearTranslation = viewModel::clearLineTranslation,
-            onDismiss = { showLineTranslatorSheet = false }
+            onDismiss = {
+                showLineTranslatorSheet = false
+                pendingLongPressYFraction = null
+            }
         )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun PageLineTranslatorSheet(
     pageNumber: Int,
     linesState: PageLinesUiState,
     translationState: LineTranslationUiState,
     targetLanguageTag: String,
+    initialLongPressYFraction: Float?,
     onReloadLines: () -> Unit,
     onOpenLanguagePicker: () -> Unit,
     onTranslateLines: (List<String>) -> Unit,
@@ -1122,9 +1162,51 @@ private fun PageLineTranslatorSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
     val activeLanguage = remember(targetLanguageTag) { WorldwideLanguages.findByTag(targetLanguageTag) }
     val translationAudioPlayer = remember(context) { BookAudioPlayer(context) }
+
+    val workingLines = remember(pageNumber, linesState) {
+        mutableStateListOf<String>().apply {
+            if (linesState is PageLinesUiState.Success) addAll(linesState.lines)
+        }
+    }
     var selectedIndices by remember(pageNumber, linesState) { mutableStateOf(emptySet<Int>()) }
+    var activeLineActionIndex by remember(pageNumber, linesState) { mutableStateOf<Int?>(null) }
+    var cutHistory by remember(pageNumber, linesState) { mutableStateOf<Pair<Int, String>?>(null) }
+    var actionFeedback by remember(pageNumber, linesState) { mutableStateOf<String?>(null) }
+    var editableSelectionBuffer by remember(pageNumber, linesState) { mutableStateOf<String?>(null) }
+    val lineListState = rememberLazyListState()
+
+    LaunchedEffect(pageNumber, linesState, initialLongPressYFraction) {
+        if (linesState is PageLinesUiState.Success &&
+            initialLongPressYFraction != null &&
+            workingLines.isNotEmpty()
+        ) {
+            val bounds = linesState.lineYBounds
+            val targetIdx = if (bounds.size == workingLines.size) {
+                val exactMatch = bounds.indexOfFirst { (top, bottom) ->
+                    initialLongPressYFraction in (top - 0.015f)..(bottom + 0.015f)
+                }
+                if (exactMatch >= 0) {
+                    exactMatch
+                } else {
+                    bounds.indices.minByOrNull { idx ->
+                        val mid = (bounds[idx].first + bounds[idx].second) / 2f
+                        abs(mid - initialLongPressYFraction)
+                    } ?: 0
+                }
+            } else {
+                (initialLongPressYFraction * workingLines.size)
+                    .toInt()
+                    .coerceIn(0, workingLines.lastIndex)
+            }
+            activeLineActionIndex = targetIdx
+            selectedIndices = setOf(targetIdx)
+            lineListState.animateScrollToItem(targetIdx)
+        }
+    }
 
     DisposableEffect(translationAudioPlayer) {
         onDispose { translationAudioPlayer.close() }
@@ -1136,7 +1218,7 @@ private fun PageLineTranslatorSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1145,12 +1227,12 @@ private fun PageLineTranslatorSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Select & Translate Lines",
-                        style = MaterialTheme.typography.titleLarge,
+                        text = "Page Lines • Select, Cut, Copy & Translate",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Page $pageNumber • Tap lines to select & translate",
+                        text = "Page $pageNumber • Tap or long-press any line for Select, Cut, Copy & Translate",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1231,21 +1313,196 @@ private fun PageLineTranslatorSheet(
                 }
 
                 is PageLinesUiState.Success -> {
-                    val lines = linesState.lines
+                    // Long-Press / Selection Contextual Action Toolbar (Select • Cut • Copy • Translate)
+                    val actionIdx = activeLineActionIndex ?: selectedIndices.firstOrNull()
+                    if (actionIdx != null && actionIdx in workingLines.indices) {
+                        val activeLineText = workingLines[actionIdx]
+                        val targetTextForActions = if (actionIdx in selectedIndices && selectedIndices.size > 1) {
+                            selectedIndices.sorted().mapNotNull { workingLines.getOrNull(it) }.joinToString("\n")
+                        } else {
+                            activeLineText
+                        }
+                        val targetListForTranslate = if (actionIdx in selectedIndices && selectedIndices.size > 1) {
+                            selectedIndices.sorted().mapNotNull { workingLines.getOrNull(it) }
+                        } else {
+                            listOf(activeLineText)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("long_press_line_action_bar")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Line ${actionIdx + 1}: $activeLineText",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            activeLineActionIndex = null
+                                            selectedIndices = emptySet()
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "Dismiss line actions",
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    LineActionPill(
+                                        icon = Icons.Filled.SelectAll,
+                                        label = "Select",
+                                        onClick = {
+                                            selectedIndices = selectedIndices + actionIdx
+                                            editableSelectionBuffer = targetTextForActions
+                                            actionFeedback = "Line ${actionIdx + 1} selected for text inspection"
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("line_action_select")
+                                    )
+                                    LineActionPill(
+                                        icon = Icons.Filled.ContentCut,
+                                        label = "Cut",
+                                        onClick = {
+                                            clipboardManager.setText(AnnotatedString(targetTextForActions))
+                                            val removedText = workingLines.removeAt(actionIdx)
+                                            cutHistory = actionIdx to removedText
+                                            selectedIndices = selectedIndices
+                                                .filter { it != actionIdx }
+                                                .map { if (it > actionIdx) it - 1 else it }
+                                                .toSet()
+                                            activeLineActionIndex = null
+                                            if (editableSelectionBuffer == removedText) {
+                                                editableSelectionBuffer = null
+                                            }
+                                            actionFeedback = "Cut line to clipboard"
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("line_action_cut")
+                                    )
+                                    LineActionPill(
+                                        icon = Icons.Filled.ContentCopy,
+                                        label = "Copy",
+                                        onClick = {
+                                            clipboardManager.setText(AnnotatedString(targetTextForActions))
+                                            actionFeedback = "Copied to clipboard"
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("line_action_copy")
+                                    )
+                                    LineActionPill(
+                                        icon = Icons.Filled.Translate,
+                                        label = "Translate",
+                                        onClick = {
+                                            selectedIndices = selectedIndices + actionIdx
+                                            onTranslateLines(targetListForTranslate)
+                                            activeLineActionIndex = null
+                                        },
+                                        modifier = Modifier
+                                            .weight(1.1f)
+                                            .testTag("line_action_translate")
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Feedback & Undo Cut bar
+                    if (actionFeedback != null || cutHistory != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = actionFeedback.orEmpty(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            val undoItem = cutHistory
+                            if (undoItem != null) {
+                                TextButton(
+                                    onClick = {
+                                        val insertIdx = undoItem.first.coerceIn(0, workingLines.size)
+                                        workingLines.add(insertIdx, undoItem.second)
+                                        selectedIndices = selectedIndices + insertIdx
+                                        cutHistory = null
+                                        actionFeedback = "Restored cut line"
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.testTag("undo_cut_line_button")
+                                ) {
+                                    Icon(Icons.Filled.Undo, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Undo Cut")
+                                }
+                            }
+                        }
+                    }
+
+                    // Native Select / Cut / Copy / Translate Editor Buffer when "Select" is tapped
+                    val selectionBuffer = editableSelectionBuffer
+                    if (selectionBuffer != null) {
+                        OutlinedTextField(
+                            value = selectionBuffer,
+                            onValueChange = { editableSelectionBuffer = it },
+                            label = { Text("Selected Line Text (drag handles to select/cut/copy)") },
+                            maxLines = 3,
+                            shape = RoundedCornerShape(14.dp),
+                            trailingIcon = {
+                                IconButton(onClick = { editableSelectionBuffer = null }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Close text editor")
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("selected_line_editable_field")
+                        )
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${selectedIndices.size} of ${lines.size} lines selected",
+                            text = "${selectedIndices.size} of ${workingLines.size} lines selected",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             TextButton(
                                 onClick = {
-                                    selectedIndices = lines.indices.toSet()
+                                    selectedIndices = workingLines.indices.toSet()
                                     onClearTranslation()
                                 }
                             ) {
@@ -1255,6 +1512,8 @@ private fun PageLineTranslatorSheet(
                                 TextButton(
                                     onClick = {
                                         selectedIndices = emptySet()
+                                        activeLineActionIndex = null
+                                        editableSelectionBuffer = null
                                         onClearTranslation()
                                     }
                                 ) {
@@ -1265,30 +1524,42 @@ private fun PageLineTranslatorSheet(
                     }
 
                     LazyColumn(
+                        state = lineListState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(230.dp),
+                            .height(210.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(lines.size) { index ->
-                            val line = lines[index]
+                        items(workingLines.size) { index ->
+                            val line = workingLines[index]
                             val isSelected = index in selectedIndices
+                            val isActionTarget = index == activeLineActionIndex
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                                color = when {
+                                    isActionTarget -> MaterialTheme.colorScheme.primaryContainer
+                                    isSelected -> MaterialTheme.colorScheme.secondaryContainer
+                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        selectedIndices = if (isSelected) {
-                                            selectedIndices - index
-                                        } else {
-                                            selectedIndices + index
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .combinedClickable(
+                                        onClick = {
+                                            selectedIndices = if (isSelected) {
+                                                selectedIndices - index
+                                            } else {
+                                                selectedIndices + index
+                                            }
+                                        },
+                                        onLongClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            activeLineActionIndex = index
+                                            if (index !in selectedIndices) {
+                                                selectedIndices = selectedIndices + index
+                                            }
                                         }
-                                    }
+                                    )
                                     .testTag("selectable_line_$index")
                             ) {
                                 Row(
@@ -1301,7 +1572,7 @@ private fun PageLineTranslatorSheet(
                                     Icon(
                                         imageVector = if (isSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                                         contentDescription = if (isSelected) "Selected line" else "Unselected line",
-                                        tint = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Text(
@@ -1315,8 +1586,8 @@ private fun PageLineTranslatorSheet(
                         }
                     }
 
-                    val selectedLines = remember(selectedIndices, lines) {
-                        selectedIndices.sorted().mapNotNull { lines.getOrNull(it) }
+                    val selectedLines = remember(selectedIndices, workingLines.size) {
+                        selectedIndices.sorted().mapNotNull { workingLines.getOrNull(it) }
                     }
 
                     Button(
@@ -1335,8 +1606,8 @@ private fun PageLineTranslatorSheet(
                         Icon(Icons.Filled.Translate, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (selectedLines.isEmpty()) "Select lines above to translate"
-                            else "Translate ${selectedLines.size} Selected Line(s) to ${activeLanguage.displayName}",
+                            text = if (selectedLines.isEmpty()) "Select or long-press a line"
+                            else "Translate ${selectedLines.size} Line(s) to ${activeLanguage.displayName}",
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -1384,22 +1655,39 @@ private fun PageLineTranslatorSheet(
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSecondaryContainer
                                         )
-                                        TextButton(
-                                            onClick = {
-                                                translationAudioPlayer.playText(
-                                                    translationState.translatedText,
-                                                    translationState.languageTag
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(
+                                                onClick = {
+                                                    clipboardManager.setText(AnnotatedString(translationState.translatedText))
+                                                    actionFeedback = "Copied translation to clipboard"
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.ContentCopy,
+                                                    contentDescription = "Copy translation",
+                                                    modifier = Modifier.size(16.dp)
                                                 )
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                                                contentDescription = "Listen to translation",
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Listen")
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Copy")
+                                            }
+                                            TextButton(
+                                                onClick = {
+                                                    translationAudioPlayer.playText(
+                                                        translationState.translatedText,
+                                                        translationState.languageTag
+                                                    )
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                                    contentDescription = "Listen to translation",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Listen")
+                                            }
                                         }
                                     }
                                     SelectionContainer {
@@ -1415,6 +1703,42 @@ private fun PageLineTranslatorSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LineActionPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.16f),
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(17.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+                maxLines = 1
+            )
         }
     }
 }
