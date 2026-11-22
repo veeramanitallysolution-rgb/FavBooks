@@ -1,0 +1,186 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             data.dailyGoalPages is int && data.dailyGoalPages >= 1 && data.dailyGoalPages <= 500 &&
+             data.totalPagesRead is int && data.totalPagesRead >= 0 && data.totalPagesRead <= 10000000 &&
+             data.streakDays is int && data.streakDays >= 0 && data.streakDays <= 50000 &&
+             (!('lastReadDate' in data) || (data.lastReadDate is string && data.lastReadDate.size() <= 16)) &&
+             data.reminderEnabled is bool &&
+             data.reminderHour is int && data.reminderHour >= 0 && data.reminderHour <= 23 &&
+             data.reminderMinute is int && data.reminderMinute >= 0 && data.reminderMinute <= 59 &&
+             data.appTheme is string && data.appTheme.size() <= 16 && data.appTheme in ['SYSTEM', 'LIGHT', 'DARK'] &&
+             data.readerTheme is string && data.readerTheme.size() <= 16 && data.readerTheme in ['LIGHT', 'SEPIA', 'DARK'] &&
+             (!('preferredLanguageTag' in data) || (data.preferredLanguageTag is string && data.preferredLanguageTag.size() >= 2 && data.preferredLanguageTag.size() <= 24)) &&
+             (!('readerViewMode' in data) || (data.readerViewMode is string && data.readerViewMode.size() <= 16 && data.readerViewMode in ['PAGE_SCROLL', 'BOOK_FLIP']));
+    }
+
+    function isValidBook(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.author is string && data.author.size() >= 1 && data.author.size() <= 120 &&
+             data.pageCount is int && data.pageCount >= 1 && data.pageCount <= 20000 &&
+             data.currentPage is int && data.currentPage >= 0 && data.currentPage < data.pageCount &&
+             data.coverColorHex is string && data.coverColorHex.size() >= 4 && data.coverColorHex.size() <= 16 &&
+             data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 255 &&
+             data.fileSizeBytes is int && data.fileSizeBytes >= 0 && data.fileSizeBytes <= 2000000000 &&
+             data.favorite is bool &&
+             data.completed is bool &&
+             (!('archived' in data) || (data.archived is bool)) &&
+             (!('summary' in data) || (data.summary is string && data.summary.size() <= 4000)) &&
+             (!('summaryLanguage' in data) || (data.summaryLanguage is string && data.summaryLanguage.size() <= 24)) &&
+             (!('lastReadAt' in data) || (data.lastReadAt is timestamp && data.lastReadAt <= request.time));
+    }
+
+    function isValidBookmark(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             isValidId(data.bookId) &&
+             data.bookTitle is string && data.bookTitle.size() >= 1 && data.bookTitle.size() <= 200 &&
+             data.pageIndex is int && data.pageIndex >= 0 && data.pageIndex < 20000 &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 300));
+    }
+
+    function isValidReadingLog(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.dateKey is string && data.dateKey.size() >= 8 && data.dateKey.size() <= 16 && data.dateKey.matches('^[0-9\\-]+$') &&
+             data.pagesRead is int && data.pagesRead >= 0 && data.pagesRead <= 10000 &&
+             data.minutesRead is int && data.minutesRead >= 0 && data.minutesRead <= 1440;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'dailyGoalPages', 'totalPagesRead', 'streakDays', 'reminderEnabled', 'reminderHour', 'reminderMinute', 'appTheme', 'readerTheme', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'email', 'dailyGoalPages', 'totalPagesRead', 'streakDays', 'lastReadDate', 'reminderEnabled', 'reminderHour', 'reminderMinute', 'appTheme', 'readerTheme', 'preferredLanguageTag', 'readerViewMode', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       (
+                         incoming().diff(existing()).affectedKeys().hasOnly(['dailyGoalPages', 'reminderEnabled', 'reminderHour', 'reminderMinute', 'appTheme', 'readerTheme', 'preferredLanguageTag', 'readerViewMode', 'updatedAt']) ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['totalPagesRead', 'streakDays', 'lastReadDate', 'updatedAt']) ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'updatedAt'])
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /books/{bookId} {
+        allow get: if isOwner(userId) && isValidId(bookId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(bookId) &&
+                         incoming().keys().hasAll(['userId', 'title', 'author', 'pageCount', 'currentPage', 'coverColorHex', 'fileName', 'fileSizeBytes', 'favorite', 'completed', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'title', 'author', 'pageCount', 'currentPage', 'coverColorHex', 'fileName', 'fileSizeBytes', 'favorite', 'completed', 'archived', 'summary', 'summaryLanguage', 'lastReadAt', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidBook(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(bookId) &&
+                         isValidBook(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         (
+                           incoming().diff(existing()).affectedKeys().hasOnly(['currentPage', 'completed', 'lastReadAt', 'updatedAt']) ||
+                           incoming().diff(existing()).affectedKeys().hasOnly(['favorite', 'updatedAt']) ||
+                           incoming().diff(existing()).affectedKeys().hasOnly(['archived', 'updatedAt']) ||
+                           incoming().diff(existing()).affectedKeys().hasOnly(['title', 'author', 'updatedAt']) ||
+                           incoming().diff(existing()).affectedKeys().hasOnly(['summary', 'summaryLanguage', 'updatedAt']) ||
+                           incoming().diff(existing()).affectedKeys().hasOnly(['pageCount', 'fileName', 'fileSizeBytes', 'updatedAt'])
+                         );
+
+        allow delete: if isOwner(userId) && isValidId(bookId);
+      }
+
+      match /bookmarks/{bookmarkId} {
+        allow get: if isOwner(userId) && isValidId(bookmarkId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(bookmarkId) &&
+                         incoming().keys().hasAll(['userId', 'bookId', 'bookTitle', 'pageIndex', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'bookId', 'bookTitle', 'pageIndex', 'note', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidBookmark(incoming()) &&
+                         exists(/databases/$(database)/documents/users/$(userId)/books/$(incoming().bookId));
+
+        allow update: if isOwner(userId) &&
+                         isValidId(bookmarkId) &&
+                         isValidBookmark(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().bookId == existing().bookId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['note', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(bookmarkId);
+      }
+
+      match /readingLogs/{dateKey} {
+        allow get: if isOwner(userId) && isValidId(dateKey);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(dateKey) &&
+                         incoming().dateKey == dateKey &&
+                         incoming().keys().hasAll(['userId', 'dateKey', 'pagesRead', 'minutesRead', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'dateKey', 'pagesRead', 'minutesRead', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         isValidReadingLog(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(dateKey) &&
+                         isValidReadingLog(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().dateKey == existing().dateKey &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['pagesRead', 'minutesRead', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(dateKey);
+      }
+    }
+  }
+}

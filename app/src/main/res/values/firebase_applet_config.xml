@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<resources>
+    <string name="firestore_database_id" translatable="false">ai-studio-android-mydigita-04c450df-de57-4177-8845-399184973f98</string>
+    <string name="recaptcha_site_key" translatable="false">6LdPSC0uAAAAAD0cdTDoYh7gMXg9ZhwHAQQeJbXV</string>
+</resources>

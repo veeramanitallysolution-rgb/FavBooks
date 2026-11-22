@@ -1,0 +1,6 @@
+{
+  "name": "Favbooks",
+  "description": "Personal digital PDF book library with realistic 3D page-turning reader, bookmarks, reading progress dashboard, and cloud sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User reading preferences, language, daily goal, and aggregate reading stats",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "Reader display name" },
+        "email": { "type": "string", "description": "Reader email address" },
+        "dailyGoalPages": { "type": "integer", "description": "Daily page reading target" },
+        "totalPagesRead": { "type": "integer", "description": "Lifetime pages read" },
+        "streakDays": { "type": "integer", "description": "Current daily reading streak" },
+        "lastReadDate": { "type": "string", "description": "ISO date YYYY-MM-DD of last reading activity" },
+        "reminderEnabled": { "type": "boolean", "description": "Whether daily reading reminder is enabled" },
+        "reminderHour": { "type": "integer", "description": "Reminder hour (0-23)" },
+        "reminderMinute": { "type": "integer", "description": "Reminder minute (0-59)" },
+        "appTheme": { "type": "string", "enum": ["SYSTEM", "LIGHT", "DARK"], "description": "App theme mode" },
+        "readerTheme": { "type": "string", "enum": ["LIGHT", "SEPIA", "DARK"], "description": "PDF reader paper theme" },
+        "preferredLanguageTag": { "type": "string", "description": "BCP-47 language tag for worldwide summaries, UI, and audio narration" },
+        "readerViewMode": { "type": "string", "enum": ["PAGE_SCROLL", "BOOK_FLIP"], "description": "Preferred PDF reading scroll or 3D page flip mode" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "displayName", "dailyGoalPages", "totalPagesRead", "streakDays", "reminderEnabled", "reminderHour", "reminderMinute", "appTheme", "readerTheme", "createdAt", "updatedAt"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "A PDF book in the user's personal digital bookshelf",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "title": { "type": "string", "description": "Extracted or edited book title" },
+        "author": { "type": "string", "description": "Extracted or edited book author" },
+        "pageCount": { "type": "integer", "description": "Total PDF pages" },
+        "currentPage": { "type": "integer", "description": "Zero-based last-read page index" },
+        "coverColorHex": { "type": "string", "description": "Accent spine color hex" },
+        "fileName": { "type": "string", "description": "Original PDF file name" },
+        "fileSizeBytes": { "type": "integer", "description": "File size in bytes" },
+        "favorite": { "type": "boolean", "description": "Whether book is starred/favorited" },
+        "completed": { "type": "boolean", "description": "Whether book reading is finished" },
+        "archived": { "type": "boolean", "description": "Whether book is stored in the Archive shelf" },
+        "summary": { "type": "string", "description": "Generated small summary of the book" },
+        "summaryLanguage": { "type": "string", "description": "BCP-47 language tag of cached summary" },
+        "lastReadAt": { "type": "string", "format": "date-time", "description": "Server timestamp when last opened or read" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "title", "author", "pageCount", "currentPage", "coverColorHex", "fileName", "fileSizeBytes", "favorite", "completed", "createdAt", "updatedAt"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "A saved page bookmark for a book",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "bookId": { "type": "string", "description": "Parent book document ID" },
+        "bookTitle": { "type": "string", "description": "Book title snapshot for display" },
+        "pageIndex": { "type": "integer", "description": "Zero-based bookmarked page index" },
+        "note": { "type": "string", "description": "Optional reader note" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "bookId", "bookTitle", "pageIndex", "createdAt", "updatedAt"]
+    },
+    "ReadingLog": {
+      "title": "ReadingLog",
+      "description": "Daily reading activity summary for dashboard chart",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "dateKey": { "type": "string", "description": "Date string YYYY-MM-DD" },
+        "pagesRead": { "type": "integer", "description": "Pages turned on this date" },
+        "minutesRead": { "type": "integer", "description": "Estimated minutes read on this date" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "dateKey", "pagesRead", "minutesRead", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user reading profile and preferences"
+    },
+    "/users/{userId}/books/{bookId}": {
+      "schema": { "$ref": "#/entities/Book" },
+      "description": "User's personal PDF book library metadata, summary, and reading progress"
+    },
+    "/users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/Bookmark" },
+      "description": "User's bookmarked pages across their library"
+    },
+    "/users/{userId}/readingLogs/{dateKey}": {
+      "schema": { "$ref": "#/entities/ReadingLog" },
+      "description": "Daily reading progress logs keyed by YYYY-MM-DD"
+    }
+  }
+}
