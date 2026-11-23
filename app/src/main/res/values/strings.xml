@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Favbooks</string>
+    <string name="app_name">FavBooks</string>
     <string name="auth_title">Your Private Sanctuary for Books</string>
     <string name="auth_subtitle">Organize your PDF library, read with realistic 3D page turns, bookmark passages, and track your daily reading habit.</string>
     <string name="sign_in_with_google">Sign in with Google</string>
@@ -17,5 +17,5 @@
     <string name="reminder_channel_name">Daily Reading Reminders</string>
     <string name="reminder_channel_description">Gentle daily nudges to keep your reading streak alive.</string>
     <string name="reminder_notification_title">Time for a few pages</string>
-    <string name="reminder_notification_body">Open Favbooks and continue your current book.</string>
+    <string name="reminder_notification_body">Open FavBooks and continue your current book.</string>
 </resources>

@@ -44,6 +44,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +78,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -93,8 +95,8 @@ import com.example.data.pdf.PdfStorageManager
 import com.example.data.repository.BookshelfRepository
 import com.example.data.repository.ThemePreferencesStore
 import com.example.ui.components.WorldwideLanguageSheet
-import com.example.ui.theme.NavyMidGradientLight
-import com.example.ui.theme.NavyTopGradientLight
+import com.example.ui.theme.MidIceWashLight
+import com.example.ui.theme.TopIceWashLight
 import com.example.ui.viewmodel.BookshelfViewModel
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
@@ -232,8 +234,8 @@ fun AuthenticatedLibraryRoot(
                     if (isLight) {
                         Modifier.background(
                             Brush.verticalGradient(
-                                0.0f to NavyTopGradientLight.copy(alpha = 0.65f),
-                                0.22f to NavyMidGradientLight.copy(alpha = 0.45f),
+                                0.0f to TopIceWashLight.copy(alpha = 0.7f),
+                                0.20f to MidIceWashLight.copy(alpha = 0.4f),
                                 0.45f to baseBackground
                             )
                         )
@@ -294,14 +296,14 @@ fun AuthenticatedLibraryRoot(
                     }
                 },
                 floatingActionButton = {
-                    if (selectedTab == LibraryTab.BOOKSHELF) {
+                    if (selectedTab == LibraryTab.BOOKSHELF && useNavigationRail) {
                         FloatingActionButton(
                             onClick = openPdfPicker,
                             shape = CircleShape,
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier
-                                .padding(bottom = if (useNavigationRail) 12.dp else 72.dp)
+                                .padding(bottom = 12.dp)
                                 .testTag("upload_pdf_fab")
                         ) {
                             Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.upload_pdf))
@@ -345,6 +347,8 @@ fun AuthenticatedLibraryRoot(
                                 onOpenProfile = { showProfileSheet = true },
                                 onOpenLanguagePicker = { showLanguageSheet = true },
                                 onOpenSignOut = { showSignOutDialog = true },
+                                onOpenProgressTab = { selectedTab = LibraryTab.DASHBOARD },
+                                onOpenBookmarksTab = { selectedTab = LibraryTab.BOOKMARKS },
                                 onOpenBookRead = { book -> openBookSession(book, BookOpenMode.READ, null) },
                                 onOpenBookPlay = { book -> openBookSession(book, BookOpenMode.PLAY, null) },
                                 onRequestUploadPdf = openPdfPicker,
@@ -375,15 +379,12 @@ fun AuthenticatedLibraryRoot(
                         }
                     }
 
-                    // Reference-Style 4-Tab Floating Capsule Bottom Navigation Bar
+                    // Reference-Style Clean White Bottom Navigation Bar with Icons + Labels
                     if (!useNavigationRail) {
                         FloatingCapsuleNavBar(
                             selectedTab = selectedTab,
                             onSelectTab = { selectedTab = it },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .padding(bottom = 14.dp)
+                            modifier = Modifier.align(Alignment.BottomCenter)
                         )
                     }
                 }
@@ -456,43 +457,55 @@ private fun FloatingCapsuleNavBar(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(32.dp),
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 10.dp,
-        tonalElevation = 4.dp,
+        shadowElevation = 8.dp,
+        tonalElevation = 2.dp,
         modifier = modifier
-            .height(62.dp)
+            .fillMaxWidth()
             .testTag("floating_bottom_nav_capsule")
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            LibraryTab.entries.forEach { tab ->
-                val selected = selectedTab == tab
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent
+        Column(modifier = Modifier.fillMaxWidth()) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                LibraryTab.entries.forEach { tab ->
+                    val selected = selectedTab == tab
+                    val tint = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onSelectTab(tab) }
+                            .padding(vertical = 4.dp)
+                            .testTag("nav_tab_${tab.name.lowercase()}")
+                    ) {
+                        Icon(
+                            imageVector = tabIcon(tab, selected),
+                            contentDescription = stringResource(tab.labelRes),
+                            tint = tint,
+                            modifier = Modifier.size(22.dp)
                         )
-                        .clickable { onSelectTab(tab) }
-                        .testTag("nav_tab_${tab.name.lowercase()}")
-                ) {
-                    Icon(
-                        imageVector = tabIcon(tab, selected),
-                        contentDescription = stringResource(tab.labelRes),
-                        tint = if (selected) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(23.dp)
-                    )
+                        Text(
+                            text = stringResource(tab.labelRes),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = tint,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }

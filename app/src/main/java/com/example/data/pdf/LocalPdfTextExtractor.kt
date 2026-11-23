@@ -25,6 +25,15 @@ data class ExtractedPageLine(
     val bottomFraction: Float
 )
 
+data class PageWordToken(
+    val index: Int,
+    val text: String,
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+)
+
 object LocalPdfTextExtractor {
 
     private const val TAG = "LocalPdfTextExtractor"
@@ -114,6 +123,47 @@ object LocalPdfTextExtractor {
                     }
                     .addOnFailureListener { err ->
                         Log.w(TAG, "ML Kit OCR failed", err)
+                        if (cont.isActive) cont.resume(emptyList())
+                    }
+            }
+        }
+
+    suspend fun extractWordTokens(pageBitmap: Bitmap): List<PageWordToken> =
+        withContext(Dispatchers.Default) {
+            val w = pageBitmap.width.coerceAtLeast(1).toFloat()
+            val h = pageBitmap.height.coerceAtLeast(1).toFloat()
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            val inputImage = InputImage.fromBitmap(pageBitmap, 0)
+            suspendCancellableCoroutine { cont ->
+                recognizer.process(inputImage)
+                    .addOnSuccessListener { visionText ->
+                        val sortedLines = visionText.textBlocks
+                            .flatMap { it.lines }
+                            .sortedWith(
+                                compareBy<com.google.mlkit.vision.text.Text.Line>(
+                                    { ((it.boundingBox?.top ?: 0) / h) },
+                                    { ((it.boundingBox?.left ?: 0) / w) }
+                                )
+                            )
+                        val rawWords = mutableListOf<PageWordToken>()
+                        var idx = 0
+                        for (line in sortedLines) {
+                            val sortedElements = line.elements.sortedBy { it.boundingBox?.left ?: 0 }
+                            for (element in sortedElements) {
+                                val wordText = element.text.trim()
+                                val box = element.boundingBox ?: continue
+                                if (wordText.isEmpty()) continue
+                                val l = (box.left / w).coerceIn(0f, 1f)
+                                val t = (box.top / h).coerceIn(0f, 1f)
+                                val r = (box.right / w).coerceIn(l + 0.002f, 1f)
+                                val b = (box.bottom / h).coerceIn(t + 0.002f, 1f)
+                                rawWords.add(PageWordToken(idx++, wordText, l, t, r, b))
+                            }
+                        }
+                        if (cont.isActive) cont.resume(rawWords)
+                    }
+                    .addOnFailureListener { err ->
+                        Log.w(TAG, "ML Kit word token extraction failed", err)
                         if (cont.isActive) cont.resume(emptyList())
                     }
             }

@@ -82,12 +82,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -98,6 +102,15 @@ import com.example.data.model.BookshelfSort
 import com.example.data.model.UiState
 import com.example.ui.viewmodel.BookshelfViewModel
 import java.io.File
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
 
 private enum class ShelfSegment(val label: String) {
     EBOOKS("Ebooks"),
@@ -116,7 +129,9 @@ fun BookshelfScreen(
     onOpenBookRead: (BookItem) -> Unit,
     onOpenBookPlay: (BookItem) -> Unit,
     onRequestUploadPdf: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenProgressTab: () -> Unit = {},
+    onOpenBookmarksTab: () -> Unit = {}
 ) {
     val booksUiState by viewModel.filteredBooksState.collectAsStateWithLifecycle()
     val allBooksState by viewModel.booksState.collectAsStateWithLifecycle()
@@ -154,7 +169,7 @@ fun BookshelfScreen(
 
             val profileName = profile?.displayName?.takeIf { it.isNotBlank() } ?: "Reader"
 
-            // Compact Name Profile greeting row
+            // Crisp FAVBOOKS Editorial Brand Row + Name Profile Chip
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -163,15 +178,16 @@ fun BookshelfScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    text = "FAVBOOKS",
+                    style = MaterialTheme.typography.titleLarge.copy(letterSpacing = 0.8.sp),
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary
                 )
 
                 Surface(
                     shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
                     shadowElevation = 1.dp,
                     modifier = Modifier
                         .clickable { onOpenProfile() }
@@ -278,7 +294,7 @@ fun BookshelfScreen(
                             ) {
                                 Image(
                                     painter = painterResource(id = R.drawable.ic_bookshelf_logo),
-                                    contentDescription = "Favbooks menu",
+                                    contentDescription = "FavBooks menu",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -458,11 +474,18 @@ fun BookshelfScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // Popular / Featured Horizontal Carousel (matches reference Left screen)
+                            // Read • Learn • Grow Hero Banner Card (matches 1st screen in mockup)
+                            if (searchQuery.isBlank() && activeSegment != ShelfSegment.ARCHIVED) {
+                                item {
+                                    FavBooksHeroBanner()
+                                }
+                            }
+
+                            // Popular / Featured Horizontal Carousel
                             if (activeSegment != ShelfSegment.ARCHIVED && popularCovers.isNotEmpty() && searchQuery.isBlank()) {
                                 item {
                                     SectionHeaderRow(
-                                        title = if (activeSegment == ShelfSegment.AUDIO_PLAY) "Full-Book Audio Ready" else "Popular Books",
+                                        title = if (activeSegment == ShelfSegment.AUDIO_PLAY) "Full-Book Audio Ready" else "My Bookshelf",
                                         actionLabel = "See All",
                                         onAction = { viewModel.setFilter(BookshelfFilter.ALL) }
                                     )
@@ -488,6 +511,67 @@ fun BookshelfScreen(
                                                 }
                                             )
                                         }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    // Prominent Navy "+ Import PDF / Add Book" Pill Button
+                                    Button(
+                                        onClick = onRequestUploadPdf,
+                                        shape = RoundedCornerShape(28.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .testTag("import_pdf_pill_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AddCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Import PDF / Add Book",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    // Quick Access Soft Ice-Blue Cards
+                                    SectionHeaderRow(
+                                        title = "Quick Access",
+                                        actionLabel = null,
+                                        onAction = {}
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        QuickAccessTile(
+                                            icon = Icons.Filled.BarChart,
+                                            iconTint = MaterialTheme.colorScheme.tertiary,
+                                            label = "Reading Progress",
+                                            onClick = onOpenProgressTab,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("quick_access_progress")
+                                        )
+                                        QuickAccessTile(
+                                            icon = Icons.Filled.Star,
+                                            iconTint = Color(0xFFEAB308),
+                                            label = "My Bookmarks",
+                                            onClick = onOpenBookmarksTab,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("quick_access_bookmarks")
+                                        )
                                     }
                                 }
                             }
@@ -1396,6 +1480,103 @@ private fun EditBookDialog(
             }
         }
     )
+}
+
+@Composable
+private fun FavBooksHeroBanner() {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(142.dp)
+            .testTag("favbooks_hero_banner")
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(id = R.drawable.img_hero_read_grow),
+                contentDescription = "Read Learn Grow books banner",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            0.0f to Color(0xEB0B1B33),
+                            0.55f to Color(0xBA0B1B33),
+                            1.0f to Color(0x140B1B33)
+                        )
+                    )
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.72f)
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Read • Learn • Grow",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = FontFamily.Serif,
+                        letterSpacing = 0.3.sp
+                    ),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "A better you,\none book at a time.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.88f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickAccessTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)),
+        shadowElevation = 1.dp,
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(24.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 fun parseHexColor(hex: String, fallback: Color): Color {

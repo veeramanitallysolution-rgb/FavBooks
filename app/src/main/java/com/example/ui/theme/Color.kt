@@ -2,69 +2,74 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Crisp Navy Blue & Clean Ivory Palette (Light)
-val NavyPrimaryLight = Color(0xFF16325C)
+// Crisp White, Oxford Navy & Soft Ice-Blue Palette (Light) — FAVBOOKS Theme
+val NavyPrimaryLight = Color(0xFF142E54)
 val OnNavyPrimaryLight = Color(0xFFFFFFFF)
-val NavyContainerLight = Color(0xFFD9E6FA)
-val OnNavyContainerLight = Color(0xFF0D1E3A)
+val IceBlueContainerLight = Color(0xFFEAF1FB)
+val OnIceBlueContainerLight = Color(0xFF102442)
 
-val CobaltSecondaryLight = Color(0xFF284B7E)
-val OnCobaltSecondaryLight = Color(0xFFFFFFFF)
-val IceBlueContainerLight = Color(0xFFE8F0FC)
-val OnIceBlueContainerLight = Color(0xFF12233E)
+val RoyalSecondaryLight = Color(0xFF255496)
+val OnRoyalSecondaryLight = Color(0xFFFFFFFF)
+val MistBlueContainerLight = Color(0xFFF1F6FD)
+val OnMistBlueContainerLight = Color(0xFF142B4F)
 
-val BronzeTertiaryLight = Color(0xFFB67B5B)
-val OnBronzeTertiaryLight = Color(0xFFFFFFFF)
-val BronzeContainerLight = Color(0xFFF3E4DB)
-val OnBronzeContainerLight = Color(0xFF3E2213)
+val EmeraldTertiaryLight = Color(0xFF1E8755)
+val OnEmeraldTertiaryLight = Color(0xFFFFFFFF)
+val MintContainerLight = Color(0xFFE4F5EC)
+val OnMintContainerLight = Color(0xFF0E3823)
 
-val NavyTopGradientLight = Color(0xFFD4E2F7)
-val NavyMidGradientLight = Color(0xFFEAF1FB)
+val TopIceWashLight = Color(0xFFEEF4FC)
+val MidIceWashLight = Color(0xFFF7FAFE)
 
-val CleanIvoryBackgroundLight = Color(0xFFF7F9FC)
-val CharcoalInkOnBackgroundLight = Color(0xFF121B2B)
+val CrispWhiteBackgroundLight = Color(0xFFF9FBFD)
+val DeepInkOnBackgroundLight = Color(0xFF111C2D)
 val PureWhiteSurfaceLight = Color(0xFFFFFFFF)
-val SoftSlateSurfaceVariantLight = Color(0xFFECF1F8)
-val CoolSlateOnSurfaceVariantLight = Color(0xFF536075)
-val SoftNavyOutlineLight = Color(0xFFCFD9E8)
+val SoftIceSurfaceVariantLight = Color(0xFFF0F4FA)
+val SlateOnSurfaceVariantLight = Color(0xFF56657A)
+val SoftIceOutlineLight = Color(0xFFD6E1EF)
 
 // Midnight Navy & Ice Blue Palette (Dark)
-val NavyPrimaryDark = Color(0xFF8DB5F5)
-val OnNavyPrimaryDark = Color(0xFF0A1D3B)
-val NavyContainerDark = Color(0xFF1A345C)
+val NavyPrimaryDark = Color(0xFF8AB4F8)
+val OnNavyPrimaryDark = Color(0xFF081B38)
+val NavyContainerDark = Color(0xFF193258)
 val OnNavyContainerDark = Color(0xFFDCE8FA)
 
-val SteelSecondaryDark = Color(0xFFACC6EC)
-val OnSteelSecondaryDark = Color(0xFF0E213D)
-val MidnightContainerDark = Color(0xFF1C2C46)
+val SteelSecondaryDark = Color(0xFFA8C5EE)
+val OnSteelSecondaryDark = Color(0xFF0D203D)
+val MidnightContainerDark = Color(0xFF1A2A44)
 val OnMidnightContainerDark = Color(0xFFDDE8FA)
 
-val BronzeTertiaryDark = Color(0xFFE0A484)
-val OnBronzeTertiaryDark = Color(0xFF3C1D0E)
-val BronzeContainerDark = Color(0xFF562F1B)
-val OnBronzeContainerDark = Color(0xFFFBDCCF)
+val EmeraldTertiaryDark = Color(0xFF7AD4A6)
+val OnEmeraldTertiaryDark = Color(0xFF063821)
+val MintContainerDark = Color(0xFF174B32)
+val OnMintContainerDark = Color(0xFFBCEFD3)
 
-val MidnightBackgroundDark = Color(0xFF0C1320)
-val IceOnBackgroundDark = Color(0xFFEDF2FA)
-val DeepNavySurfaceDark = Color(0xFF141E30)
-val NavySurfaceVariantDark = Color(0xFF1F2C45)
-val CoolGrayOnSurfaceVariantDark = Color(0xFFAEBBD1)
-val NavyOutlineDark = Color(0xFF2E3F5E)
+val MidnightBackgroundDark = Color(0xFF0B1422)
+val IceOnBackgroundDark = Color(0xFFEEF3FA)
+val DeepNavySurfaceDark = Color(0xFF121E31)
+val NavySurfaceVariantDark = Color(0xFF1C2B44)
+val CoolGrayOnSurfaceVariantDark = Color(0xFFAEBCD2)
+val NavyOutlineDark = Color(0xFF2B3D5B)
+
+// Dedicated Reader Midnight Chrome (matches 3rd screen in mockup)
+val ReaderChromeNavy = Color(0xFF0E1D33)
+val ReaderChromeSurface = Color(0xFF162947)
+val ReaderChromeOnSurface = Color(0xFFFFFFFF)
 
 // Book spine palette options
 val BookSpinePalette = listOf(
-    "#16325C",
-    "#284B7E",
+    "#142E54",
+    "#255496",
     "#1D2D44",
-    "#2F5249",
+    "#1E8755",
     "#B67B5B",
     "#3B4D6B"
 )
 
 // Reader paper backgrounds
-val ReaderPaperLight = Color(0xFFFAF8F5)
+val ReaderPaperLight = Color(0xFFFAF6EE)
 val ReaderInkLight = Color(0xFF1B1917)
 val ReaderPaperSepia = Color(0xFFF3E9D2)
 val ReaderInkSepia = Color(0xFF3B2F21)
-val ReaderPaperDark = Color(0xFF111722)
-val ReaderInkDark = Color(0xFFE6ECF5)
+val ReaderPaperDark = Color(0xFF0E1828)
+val ReaderInkDark = Color(0xFFE8EEF7)

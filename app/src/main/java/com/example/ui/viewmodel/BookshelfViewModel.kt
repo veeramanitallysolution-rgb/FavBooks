@@ -17,6 +17,8 @@ import com.example.data.model.ReadingLogItem
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.data.model.WorldwideLanguages
+import com.example.data.pdf.LocalPdfTextExtractor
+import com.example.data.pdf.PageWordToken
 import com.example.data.pdf.PdfPageSession
 import com.example.data.pdf.PdfStorageManager
 import com.example.data.repository.BookshelfRepository
@@ -176,6 +178,7 @@ class BookshelfViewModel(
     private val audioTextCache = mutableMapOf<String, String>()
     private val pageLinesCache = mutableMapOf<String, List<String>>()
     private val pageLineBoundsCache = mutableMapOf<String, List<Pair<Float, Float>>>()
+    private val pageWordsCache = mutableMapOf<String, List<PageWordToken>>()
     private var audioPrepJob: Job? = null
     private var loadLinesJob: Job? = null
 
@@ -415,6 +418,20 @@ class BookshelfViewModel(
                 audioTextCache[cacheKey] = spokenText
             }
         }
+    }
+
+    suspend fun getOrExtractPageWords(
+        bookId: String,
+        pageIndex: Int,
+        pageBitmap: Bitmap
+    ): List<PageWordToken> {
+        val cacheKey = "$bookId:$pageIndex"
+        pageWordsCache[cacheKey]?.let { return it }
+        val extracted = LocalPdfTextExtractor.extractWordTokens(pageBitmap)
+        if (extracted.isNotEmpty()) {
+            pageWordsCache[cacheKey] = extracted
+        }
+        return extracted
     }
 
     fun loadPageLines(

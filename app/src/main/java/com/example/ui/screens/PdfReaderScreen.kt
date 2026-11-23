@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -10,12 +12,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -33,10 +38,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -49,6 +56,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -65,6 +73,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Translate
@@ -87,9 +96,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -101,22 +112,30 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -125,9 +144,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.snapshotFlow
 import com.example.audio.BookAudioPlayer
 import com.example.data.model.BookItem
 import com.example.data.model.BookmarkItem
@@ -135,7 +155,11 @@ import com.example.data.model.ReaderThemeMode
 import com.example.data.model.ReaderViewMode
 import com.example.data.model.UiState
 import com.example.data.model.WorldwideLanguages
+import com.example.data.pdf.PageWordToken
 import com.example.data.pdf.PdfPageSession
+import com.example.ui.theme.ReaderChromeNavy
+import com.example.ui.theme.ReaderChromeOnSurface
+import com.example.ui.theme.ReaderChromeSurface
 import com.example.ui.theme.ReaderInkDark
 import com.example.ui.theme.ReaderInkLight
 import com.example.ui.theme.ReaderInkSepia
@@ -150,7 +174,23 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sin
+
+private data class ActivePageSelection(
+    val pageIndex: Int,
+    val tokens: List<PageWordToken>,
+    val startIndex: Int,
+    val endIndex: Int
+) {
+    val selectedText: String
+        get() {
+            if (tokens.isEmpty()) return ""
+            val from = startIndex.coerceIn(0, tokens.lastIndex)
+            val to = endIndex.coerceIn(from, tokens.lastIndex)
+            return tokens.subList(from, to + 1).joinToString(" ") { it.text }
+        }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -219,6 +259,46 @@ fun PdfReaderScreen(
     var isAnimatingTurn by remember { mutableStateOf(false) }
 
     val renderedBitmaps = remember { mutableStateMapOf<Int, Bitmap>() }
+    val pageCoordinates = remember { mutableStateMapOf<Int, LayoutCoordinates>() }
+    var flipContainerCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    var activeSelection by remember { mutableStateOf<ActivePageSelection?>(null) }
+    var showInlineTranslationCard by remember { mutableStateOf(false) }
+    var commentTarget by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var inPageFeedback by remember { mutableStateOf<String?>(null) }
+    val clipboardManager = LocalClipboardManager.current
+    val inlineTranslationAudio = remember(context) { BookAudioPlayer(context) }
+
+    LaunchedEffect(inPageFeedback) {
+        if (inPageFeedback != null) {
+            delay(2200L)
+            inPageFeedback = null
+        }
+    }
+
+    LaunchedEffect(preferredLanguageTag, showInlineTranslationCard) {
+        val currentSel = activeSelection
+        if (showInlineTranslationCard && currentSel != null) {
+            val text = currentSel.selectedText
+            if (text.isNotBlank()) {
+                viewModel.translateSelectedLines(listOf(text), preferredLanguageTag)
+            }
+        }
+    }
+
+    fun launchWebSearch(queryText: String) {
+        val cleaned = queryText.trim().take(240)
+        if (cleaned.isBlank()) return
+        val url = "https://www.google.com/search?q=${Uri.encode(cleaned)}"
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching {
+            context.startActivity(intent)
+        }.onFailure {
+            inPageFeedback = "No browser app found for Web search"
+        }
+    }
 
     fun openLineInspectorForPage(targetPage: Int, yFraction: Float?, forceRefresh: Boolean = false) {
         val safePage = targetPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
@@ -234,6 +314,46 @@ fun PdfReaderScreen(
                 viewModel.loadPageLines(book.id, safePage, bmp, forceRefresh = forceRefresh)
             }
         }
+    }
+
+    fun startInPageSelection(
+        targetPage: Int,
+        localOffset: Offset,
+        sheetSize: IntSize
+    ) {
+        val safePage = targetPage.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        scope.launch {
+            val bmp = renderedBitmaps[safePage]
+                ?: session.renderPage(safePage, 1080)?.also {
+                    renderedBitmaps[safePage] = it
+                }
+            if (bmp == null) {
+                openLineInspectorForPage(safePage, null)
+                return@launch
+            }
+            val tokens = viewModel.getOrExtractPageWords(book.id, safePage, bmp)
+            if (tokens.isEmpty()) {
+                val yFrac = if (sheetSize.height > 0) {
+                    (localOffset.y / sheetSize.height.toFloat()).coerceIn(0f, 1f)
+                } else null
+                openLineInspectorForPage(safePage, yFrac)
+                return@launch
+            }
+            val norm = pixelToBitmapNormalized(localOffset, sheetSize, bmp)
+            val hitIdx = findNearestWordIndex(tokens, norm.x, norm.y)
+            activeSelection = ActivePageSelection(
+                pageIndex = safePage,
+                tokens = tokens,
+                startIndex = hitIdx,
+                endIndex = hitIdx
+            )
+            showInlineTranslationCard = false
+            viewModel.clearLineTranslation()
+        }
+    }
+
+    DisposableEffect(inlineTranslationAudio) {
+        onDispose { inlineTranslationAudio.close() }
     }
 
     DisposableEffect(session) {
@@ -259,11 +379,17 @@ fun PdfReaderScreen(
     }
 
     BackHandler {
-        val delta = sessionPagesTurned
-        sessionPagesTurned = 0
-        lastSavedPage = currentPageIndex
-        viewModel.saveReadingProgress(book, currentPageIndex, delta)
-        onClose()
+        when {
+            showInlineTranslationCard -> showInlineTranslationCard = false
+            activeSelection != null -> activeSelection = null
+            else -> {
+                val delta = sessionPagesTurned
+                sessionPagesTurned = 0
+                lastSavedPage = currentPageIndex
+                viewModel.saveReadingProgress(book, currentPageIndex, delta)
+                onClose()
+            }
+        }
     }
 
     fun persistProgressIncrement(targetPage: Int) {
@@ -356,7 +482,7 @@ fun PdfReaderScreen(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(paperBg)
+            .background(ReaderChromeNavy)
     ) {
         val density = LocalDensity.current
         val isWideViewport = maxWidth >= 700.dp
@@ -439,9 +565,10 @@ fun PdfReaderScreen(
                     modifier = Modifier
                         .width(containerWidth * zoomScale)
                         .fillMaxHeight()
+                        .statusBarsPadding()
                         .testTag("pdf_page_scroll_list"),
                     contentPadding = PaddingValues(
-                        top = if (isFullscreen) 12.dp else 72.dp,
+                        top = if (isFullscreen) 10.dp else 62.dp,
                         bottom = if (isFullscreen) 16.dp else 104.dp,
                         start = 12.dp,
                         end = 12.dp
@@ -469,6 +596,7 @@ fun PdfReaderScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            var pageSheetSize by remember(pageIdx) { mutableStateOf(IntSize.Zero) }
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 shadowElevation = 4.dp,
@@ -476,21 +604,26 @@ fun PdfReaderScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(aspect)
+                                    .onSizeChanged { pageSheetSize = it }
                                     .pointerInput(pageIdx) {
                                         detectTapGestures(
                                             onDoubleTap = {
+                                                activeSelection = null
+                                                showInlineTranslationCard = false
                                                 zoomScale = if (zoomScale > 1.05f) 1f else 1.75f
                                             },
                                             onTap = {
-                                                showControls = !showControls
-                                                isFullscreen = !showControls
+                                                if (activeSelection != null || showInlineTranslationCard) {
+                                                    activeSelection = null
+                                                    showInlineTranslationCard = false
+                                                } else {
+                                                    showControls = !showControls
+                                                    isFullscreen = !showControls
+                                                }
                                             },
                                             onLongPress = { offset ->
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                val yFrac = if (size.height > 0) {
-                                                    (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
-                                                } else null
-                                                openLineInspectorForPage(pageIdx, yFrac)
+                                                startInPageSelection(pageIdx, offset, pageSheetSize)
                                             }
                                         )
                                     }
@@ -501,6 +634,36 @@ fun PdfReaderScreen(
                                     paperColor = paperBg,
                                     inkColor = paperInk,
                                     colorFilter = pageColorFilter,
+                                    selection = activeSelection?.takeIf { it.pageIndex == pageIdx },
+                                    onUpdateSelection = { newStart, newEnd ->
+                                        activeSelection = activeSelection?.let { current ->
+                                            if (current.pageIndex == pageIdx) {
+                                                current.copy(startIndex = newStart, endIndex = newEnd)
+                                            } else current
+                                        }
+                                    },
+                                    onCopySelection = { text ->
+                                        clipboardManager.setText(AnnotatedString(text))
+                                        activeSelection = null
+                                        inPageFeedback = "Copied to clipboard"
+                                    },
+                                    onSelectAllPage = {
+                                        activeSelection = activeSelection?.let { current ->
+                                            if (current.pageIndex == pageIdx && current.tokens.isNotEmpty()) {
+                                                current.copy(startIndex = 0, endIndex = current.tokens.lastIndex)
+                                            } else current
+                                        }
+                                    },
+                                    onAddCommentSelection = { text ->
+                                        commentTarget = pageIdx to text
+                                    },
+                                    onTranslateSelection = { text ->
+                                        showInlineTranslationCard = true
+                                        viewModel.translateSelectedLines(listOf(text), preferredLanguageTag)
+                                    },
+                                    onWebSearchSelection = { text ->
+                                        launchWebSearch(text)
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -515,12 +678,16 @@ fun PdfReaderScreen(
             }
         } else {
             // 3D Page-Flip Interactive Surface
+            val hasSelection = activeSelection != null
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(zoomScale, isTwoPageSpread, leftPageIndex, pageCount) {
+                    .onGloballyPositioned { flipContainerCoords = it }
+                    .pointerInput(zoomScale, isTwoPageSpread, leftPageIndex, pageCount, hasSelection) {
                         detectTapGestures(
                             onDoubleTap = {
+                                activeSelection = null
+                                showInlineTranslationCard = false
                                 if (zoomScale > 1.05f) {
                                     zoomScale = 1f
                                     panOffset = Offset.Zero
@@ -529,7 +696,10 @@ fun PdfReaderScreen(
                                 }
                             },
                             onTap = { offset ->
-                                if (zoomScale > 1.05f) {
+                                if (activeSelection != null || showInlineTranslationCard) {
+                                    activeSelection = null
+                                    showInlineTranslationCard = false
+                                } else if (zoomScale > 1.05f) {
                                     showControls = !showControls
                                 } else {
                                     when {
@@ -549,31 +719,40 @@ fun PdfReaderScreen(
                                 } else {
                                     leftPageIndex
                                 }
-                                val yFrac = if (size.height > 0) {
-                                    (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
-                                } else null
-                                openLineInspectorForPage(tappedPage, yFrac)
+                                val outerCoords = flipContainerCoords
+                                val pageCoords = pageCoordinates[tappedPage]
+                                if (outerCoords != null && pageCoords != null && pageCoords.isAttached && outerCoords.isAttached) {
+                                    val localPos = pageCoords.localPositionOf(outerCoords, offset)
+                                    startInPageSelection(tappedPage, localPos, pageCoords.size)
+                                } else {
+                                    val yFrac = if (size.height > 0) {
+                                        (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                                    } else null
+                                    openLineInspectorForPage(tappedPage, yFrac)
+                                }
                             }
                         )
                     }
-                    .pointerInput(zoomScale) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val nextScale = (zoomScale * zoom).coerceIn(1f, 3.5f)
-                            zoomScale = nextScale
-                            if (nextScale > 1.02f) {
-                                val maxPanX = (size.width * (nextScale - 1f)) / 2f
-                                val maxPanY = (size.height * (nextScale - 1f)) / 2f
-                                panOffset = Offset(
-                                    x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
-                                    y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
-                                )
-                            } else {
-                                panOffset = Offset.Zero
+                    .pointerInput(zoomScale, hasSelection) {
+                        if (!hasSelection) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                val nextScale = (zoomScale * zoom).coerceIn(1f, 3.5f)
+                                zoomScale = nextScale
+                                if (nextScale > 1.02f) {
+                                    val maxPanX = (size.width * (nextScale - 1f)) / 2f
+                                    val maxPanY = (size.height * (nextScale - 1f)) / 2f
+                                    panOffset = Offset(
+                                        x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                                        y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                                    )
+                                } else {
+                                    panOffset = Offset.Zero
+                                }
                             }
                         }
                     }
-                    .pointerInput(zoomScale, isTwoPageSpread, leftPageIndex, pageCount) {
-                        if (zoomScale <= 1.05f) {
+                    .pointerInput(zoomScale, isTwoPageSpread, leftPageIndex, pageCount, hasSelection) {
+                        if (zoomScale <= 1.05f && !hasSelection) {
                             var totalDrag = 0f
                             detectHorizontalDragGestures(
                                 onDragStart = { totalDrag = 0f },
@@ -619,8 +798,9 @@ fun PdfReaderScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .statusBarsPadding()
                         .padding(
-                            top = if (isFullscreen) 12.dp else 68.dp,
+                            top = if (isFullscreen) 10.dp else 60.dp,
                             bottom = if (isFullscreen) 12.dp else 88.dp,
                             start = 10.dp,
                             end = 10.dp
@@ -633,6 +813,34 @@ fun PdfReaderScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    val onSelectionUpdate: (Int, Int, Int) -> Unit = { pageIdx, s, e ->
+                        activeSelection = activeSelection?.let { cur ->
+                            if (cur.pageIndex == pageIdx) cur.copy(startIndex = s, endIndex = e) else cur
+                        }
+                    }
+                    val onCopySel: (String) -> Unit = { text ->
+                        clipboardManager.setText(AnnotatedString(text))
+                        activeSelection = null
+                        inPageFeedback = "Copied to clipboard"
+                    }
+                    val onSelectAllSel: (Int) -> Unit = { pageIdx ->
+                        activeSelection = activeSelection?.let { cur ->
+                            if (cur.pageIndex == pageIdx && cur.tokens.isNotEmpty()) {
+                                cur.copy(startIndex = 0, endIndex = cur.tokens.lastIndex)
+                            } else cur
+                        }
+                    }
+                    val onCommentSel: (Int, String) -> Unit = { pageIdx, text ->
+                        commentTarget = pageIdx to text
+                    }
+                    val onTranslateSel: (String) -> Unit = { text ->
+                        showInlineTranslationCard = true
+                        viewModel.translateSelectedLines(listOf(text), preferredLanguageTag)
+                    }
+                    val onWebSearchSel: (String) -> Unit = { text ->
+                        launchWebSearch(text)
+                    }
+
                     if (isTwoPageSpread) {
                         TwoPageBookSpread(
                             leftPageIndex = leftPageIndex,
@@ -643,7 +851,15 @@ fun PdfReaderScreen(
                             flipProgress = flipProgress.value,
                             paperColor = paperBg,
                             inkColor = paperInk,
-                            colorFilter = pageColorFilter
+                            colorFilter = pageColorFilter,
+                            activeSelection = activeSelection,
+                            onRegisterPageCoords = { idx, coords -> pageCoordinates[idx] = coords },
+                            onUpdateSelection = onSelectionUpdate,
+                            onCopySelection = onCopySel,
+                            onSelectAllPage = onSelectAllSel,
+                            onAddCommentSelection = onCommentSel,
+                            onTranslateSelection = onTranslateSel,
+                            onWebSearchSelection = onWebSearchSel
                         )
                     } else {
                         SinglePageFlipView(
@@ -654,7 +870,15 @@ fun PdfReaderScreen(
                             flipProgress = flipProgress.value,
                             paperColor = paperBg,
                             inkColor = paperInk,
-                            colorFilter = pageColorFilter
+                            colorFilter = pageColorFilter,
+                            activeSelection = activeSelection,
+                            onRegisterPageCoords = { idx, coords -> pageCoordinates[idx] = coords },
+                            onUpdateSelection = { s, e -> onSelectionUpdate(leftPageIndex, s, e) },
+                            onCopySelection = onCopySel,
+                            onSelectAllPage = { onSelectAllSel(leftPageIndex) },
+                            onAddCommentSelection = { text -> onCommentSel(leftPageIndex, text) },
+                            onTranslateSelection = onTranslateSel,
+                            onWebSearchSelection = onWebSearchSel
                         )
                     }
                 }
@@ -666,21 +890,35 @@ fun PdfReaderScreen(
             visible = showControls,
             enter = slideInVertically { -it } + fadeIn(),
             exit = slideOutVertically { -it } + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                color = ReaderChromeNavy.copy(alpha = 0.96f),
+                contentColor = ReaderChromeOnSurface,
+                shape = RoundedCornerShape(16.dp),
                 tonalElevation = 4.dp,
-                shadowElevation = 4.dp,
+                shadowElevation = 6.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
+                val actionIconSize = 20.dp
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .height(46.dp)
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val actionBtnModifier = if (isWideViewport) {
+                        Modifier.size(width = 42.dp, height = 46.dp)
+                    } else {
+                        Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                    }
                     IconButton(
                         onClick = {
                             val delta = sessionPagesTurned
@@ -689,26 +927,33 @@ fun PdfReaderScreen(
                             viewModel.saveReadingProgress(book, currentPageIndex, delta)
                             onClose()
                         },
-                        modifier = Modifier.testTag("reader_back_button")
+                        modifier = actionBtnModifier.testTag("reader_back_button")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back to bookshelf"
+                            contentDescription = "Back to bookshelf",
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = book.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "Page ${currentPageIndex + 1} of $pageCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (isWideViewport) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 6.dp)
+                        ) {
+                            Text(
+                                text = book.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "Page ${currentPageIndex + 1} of $pageCount",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     // Switch between Page Scroll and 3D Flip
@@ -727,7 +972,7 @@ fun PdfReaderScreen(
                                 scope.launch { scrollListState.scrollToItem(currentPageIndex) }
                             }
                         },
-                        modifier = Modifier.testTag("toggle_view_mode_button")
+                        modifier = actionBtnModifier.testTag("toggle_view_mode_button")
                     ) {
                         Icon(
                             imageVector = if (readerViewMode == ReaderViewMode.PAGE_SCROLL) {
@@ -739,7 +984,8 @@ fun PdfReaderScreen(
                                 "Switch to 3D page flip"
                             } else {
                                 "Switch to page scroll"
-                            }
+                            },
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
@@ -748,11 +994,12 @@ fun PdfReaderScreen(
                         onClick = {
                             openLineInspectorForPage(currentPageIndex, null)
                         },
-                        modifier = Modifier.testTag("reader_translate_lines_button")
+                        modifier = actionBtnModifier.testTag("reader_translate_lines_button")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Translate,
-                            contentDescription = "Select & translate lines"
+                            contentDescription = "Select & translate lines",
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
@@ -765,33 +1012,36 @@ fun PdfReaderScreen(
                             viewModel.saveReadingProgress(book, currentPageIndex, delta)
                             onSwitchToPlay(currentPageIndex)
                         },
-                        modifier = Modifier.testTag("reader_switch_to_play_button")
+                        modifier = actionBtnModifier.testTag("reader_switch_to_play_button")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Headphones,
-                            contentDescription = "Play audio & summary"
+                            contentDescription = "Play audio & summary",
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
                     IconButton(
                         onClick = onOpenLanguagePicker,
-                        modifier = Modifier.testTag("reader_language_button")
+                        modifier = actionBtnModifier.testTag("reader_language_button")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Language,
-                            contentDescription = "Select language"
+                            contentDescription = "Select language",
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
                     if (isWideViewport && readerViewMode == ReaderViewMode.BOOK_FLIP) {
                         IconButton(
                             onClick = { preferTwoPageSpread = !preferTwoPageSpread },
-                            modifier = Modifier.testTag("toggle_spread_button")
+                            modifier = actionBtnModifier.testTag("toggle_spread_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.ChromeReaderMode,
                                 contentDescription = if (preferTwoPageSpread) "Switch to single page" else "Switch to two-page spread",
-                                tint = if (preferTwoPageSpread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (preferTwoPageSpread) Color(0xFF8AB4F8) else ReaderChromeOnSurface.copy(alpha = 0.78f),
+                                modifier = Modifier.size(actionIconSize)
                             )
                         }
                     }
@@ -799,32 +1049,35 @@ fun PdfReaderScreen(
                     val isCurrentBookmarked = bookBookmarks.any { it.pageIndex.toInt() == currentPageIndex }
                     IconButton(
                         onClick = { showAddBookmarkDialog = true },
-                        modifier = Modifier.testTag("add_bookmark_button")
+                        modifier = actionBtnModifier.testTag("add_bookmark_button")
                     ) {
                         Icon(
                             imageVector = if (isCurrentBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
                             contentDescription = "Bookmark current page",
-                            tint = if (isCurrentBookmarked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
+                            tint = if (isCurrentBookmarked) Color(0xFFFFD147) else ReaderChromeOnSurface,
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
                     IconButton(
                         onClick = { showBookmarksSheet = true },
-                        modifier = Modifier.testTag("open_bookmarks_sheet_button")
+                        modifier = actionBtnModifier.testTag("open_bookmarks_sheet_button")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Bookmarks,
-                            contentDescription = "View bookmarks"
+                            contentDescription = "View bookmarks",
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
                     IconButton(
                         onClick = { showThemeSheet = true },
-                        modifier = Modifier.testTag("reader_theme_button")
+                        modifier = actionBtnModifier.testTag("reader_theme_button")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Palette,
-                            contentDescription = "Reading theme"
+                            contentDescription = "Reading theme",
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
 
@@ -833,11 +1086,12 @@ fun PdfReaderScreen(
                             isFullscreen = true
                             showControls = false
                         },
-                        modifier = Modifier.testTag("fullscreen_button")
+                        modifier = actionBtnModifier.testTag("fullscreen_button")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Fullscreen,
-                            contentDescription = "Fullscreen reading mode"
+                            contentDescription = "Fullscreen reading mode",
+                            modifier = Modifier.size(actionIconSize)
                         )
                     }
                 }
@@ -855,7 +1109,8 @@ fun PdfReaderScreen(
                 .padding(12.dp)
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                color = ReaderChromeNavy.copy(alpha = 0.85f),
+                contentColor = ReaderChromeOnSurface,
                 shape = CircleShape,
                 tonalElevation = 2.dp
             ) {
@@ -881,9 +1136,10 @@ fun PdfReaderScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                color = ReaderChromeNavy.copy(alpha = 0.97f),
+                contentColor = ReaderChromeOnSurface,
                 tonalElevation = 6.dp,
-                shadowElevation = 6.dp,
+                shadowElevation = 8.dp,
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -917,6 +1173,11 @@ fun PdfReaderScreen(
                                     jumpToPage(value.toInt())
                                 },
                                 valueRange = 0f..(pageCount - 1).toFloat(),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color.White,
+                                    activeTrackColor = Color(0xFF7FB0FA),
+                                    inactiveTrackColor = ReaderChromeSurface
+                                ),
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("page_scrubber_slider")
@@ -949,12 +1210,12 @@ fun PdfReaderScreen(
                                 "Page ${currentPageIndex + 1} / $pageCount"
                             },
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = ReaderChromeOnSurface.copy(alpha = 0.85f)
                         )
 
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
+                            color = ReaderChromeSurface,
                             modifier = Modifier
                                 .clickable {
                                     openLineInspectorForPage(currentPageIndex, null)
@@ -969,14 +1230,14 @@ fun PdfReaderScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Translate,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    tint = Color.White,
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Text(
                                     text = "Translate Lines",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    color = Color.White
                                 )
                             }
                         }
@@ -997,6 +1258,7 @@ fun PdfReaderScreen(
                             Text(
                                 text = "${(zoomScale * 100).toInt()}%",
                                 style = MaterialTheme.typography.labelSmall,
+                                color = ReaderChromeOnSurface,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable {
@@ -1016,6 +1278,125 @@ fun PdfReaderScreen(
                 }
             }
         }
+
+        // Feedback Pill for in-page Copy / Comment / Web Search
+        AnimatedVisibility(
+            visible = inPageFeedback != null,
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = if (showControls) 72.dp else 16.dp)
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 6.dp
+            ) {
+                Text(
+                    text = inPageFeedback.orEmpty(),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)
+                )
+            }
+        }
+
+        // Inline Translation Card triggered from in-page floating toolbar
+        AnimatedVisibility(
+            visible = showInlineTranslationCard && activeSelection != null,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(
+                    start = 14.dp,
+                    end = 14.dp,
+                    bottom = if (showControls) 108.dp else 18.dp
+                )
+        ) {
+            val currentSel = activeSelection
+            if (currentSel != null) {
+                InlineTranslationOverlayCard(
+                    selectedText = currentSel.selectedText,
+                    targetLanguageTag = preferredLanguageTag,
+                    translationState = lineTranslationState,
+                    onChangeLanguage = onOpenLanguagePicker,
+                    onCopyTranslation = { translated ->
+                        clipboardManager.setText(AnnotatedString(translated))
+                        inPageFeedback = "Copied translation to clipboard"
+                    },
+                    onListenTranslation = { translated, langTag ->
+                        inlineTranslationAudio.playText(translated, langTag)
+                    },
+                    onWebSearch = { launchWebSearch(currentSel.selectedText) },
+                    onDismiss = { showInlineTranslationCard = false }
+                )
+            }
+        }
+    }
+
+    val pendingComment = commentTarget
+    if (pendingComment != null) {
+        var commentText by remember(pendingComment) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { commentTarget = null },
+            title = { Text("Add Comment • Page ${pendingComment.first + 1}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        color = Color(0xFF64B5F6).copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "\"${pendingComment.second.take(180)}\"",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                    OutlinedTextField(
+                        value = commentText,
+                        onValueChange = { commentText = it },
+                        label = { Text("Write your comment or note") },
+                        maxLines = 4,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("comment_input_field")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = commentText.trim()
+                        val quote = pendingComment.second.trim().take(120)
+                        val notePayload = if (trimmed.isNotEmpty()) {
+                            "\"$quote\" — $trimmed"
+                        } else {
+                            "\"$quote\""
+                        }
+                        viewModel.addBookmark(book, pendingComment.first, notePayload)
+                        commentTarget = null
+                        activeSelection = null
+                        inPageFeedback = "Comment saved to Bookmarks"
+                    },
+                    modifier = Modifier.testTag("save_comment_button")
+                ) {
+                    Text("Save Comment")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { commentTarget = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     if (showAddBookmarkDialog) {
@@ -1371,7 +1752,7 @@ private fun PageLineTranslatorSheet(
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     LineActionPill(
                                         icon = Icons.Filled.SelectAll,
@@ -1428,6 +1809,26 @@ private fun PageLineTranslatorSheet(
                                         modifier = Modifier
                                             .weight(1.1f)
                                             .testTag("line_action_translate")
+                                    )
+                                    LineActionPill(
+                                        icon = Icons.Filled.Public,
+                                        label = "Search",
+                                        onClick = {
+                                            val cleaned = targetTextForActions.trim().take(240)
+                                            if (cleaned.isNotBlank()) {
+                                                val intent = Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse("https://www.google.com/search?q=${Uri.encode(cleaned)}")
+                                                ).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                runCatching { context.startActivity(intent) }
+                                                    .onFailure { actionFeedback = "No browser app found" }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("line_action_web_search")
                                     )
                                 }
                             }
@@ -1752,7 +2153,15 @@ private fun SinglePageFlipView(
     flipProgress: Float,
     paperColor: Color,
     inkColor: Color,
-    colorFilter: ColorFilter?
+    colorFilter: ColorFilter?,
+    activeSelection: ActivePageSelection? = null,
+    onRegisterPageCoords: (Int, LayoutCoordinates) -> Unit = { _, _ -> },
+    onUpdateSelection: (Int, Int) -> Unit = { _, _ -> },
+    onCopySelection: (String) -> Unit = {},
+    onSelectAllPage: () -> Unit = {},
+    onAddCommentSelection: (String) -> Unit = {},
+    onTranslateSelection: (String) -> Unit = {},
+    onWebSearchSelection: (String) -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -1767,7 +2176,16 @@ private fun SinglePageFlipView(
                 paperColor = paperColor,
                 inkColor = inkColor,
                 colorFilter = colorFilter,
-                modifier = Modifier.fillMaxSize()
+                selection = activeSelection?.takeIf { it.pageIndex == currentPageIndex },
+                onUpdateSelection = onUpdateSelection,
+                onCopySelection = onCopySelection,
+                onSelectAllPage = onSelectAllPage,
+                onAddCommentSelection = onAddCommentSelection,
+                onTranslateSelection = onTranslateSelection,
+                onWebSearchSelection = onWebSearchSelection,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { onRegisterPageCoords(currentPageIndex, it) }
             )
         } else if (flipDirection > 0) {
             // Turning forward: Next page underneath, current page folding left around spine
@@ -1873,7 +2291,15 @@ private fun TwoPageBookSpread(
     flipProgress: Float,
     paperColor: Color,
     inkColor: Color,
-    colorFilter: ColorFilter?
+    colorFilter: ColorFilter?,
+    activeSelection: ActivePageSelection? = null,
+    onRegisterPageCoords: (Int, LayoutCoordinates) -> Unit = { _, _ -> },
+    onUpdateSelection: (Int, Int, Int) -> Unit = { _, _, _ -> },
+    onCopySelection: (String) -> Unit = {},
+    onSelectAllPage: (Int) -> Unit = {},
+    onAddCommentSelection: (Int, String) -> Unit = { _, _ -> },
+    onTranslateSelection: (String) -> Unit = {},
+    onWebSearchSelection: (String) -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -1896,7 +2322,16 @@ private fun TwoPageBookSpread(
                     paperColor = paperColor,
                     inkColor = inkColor,
                     colorFilter = colorFilter,
-                    modifier = Modifier.fillMaxSize()
+                    selection = if (flipDirection == 0) activeSelection?.takeIf { it.pageIndex == displayLeft } else null,
+                    onUpdateSelection = { s, e -> onUpdateSelection(displayLeft, s, e) },
+                    onCopySelection = onCopySelection,
+                    onSelectAllPage = { onSelectAllPage(displayLeft) },
+                    onAddCommentSelection = { txt -> onAddCommentSelection(displayLeft, txt) },
+                    onTranslateSelection = onTranslateSelection,
+                    onWebSearchSelection = onWebSearchSelection,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { onRegisterPageCoords(displayLeft, it) }
                 )
             }
 
@@ -1930,7 +2365,16 @@ private fun TwoPageBookSpread(
                         paperColor = paperColor,
                         inkColor = inkColor,
                         colorFilter = colorFilter,
-                        modifier = Modifier.fillMaxSize()
+                        selection = if (flipDirection == 0) activeSelection?.takeIf { it.pageIndex == displayRight } else null,
+                        onUpdateSelection = { s, e -> onUpdateSelection(displayRight, s, e) },
+                        onCopySelection = onCopySelection,
+                        onSelectAllPage = { onSelectAllPage(displayRight) },
+                        onAddCommentSelection = { txt -> onAddCommentSelection(displayRight, txt) },
+                        onTranslateSelection = onTranslateSelection,
+                        onWebSearchSelection = onWebSearchSelection,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { onRegisterPageCoords(displayRight, it) }
                     )
                 } else {
                     Box(
@@ -2026,6 +2470,108 @@ private fun TwoPageBookSpread(
     }
 }
 
+private data class PageBitmapTransform(
+    val originX: Float,
+    val originY: Float,
+    val drawnW: Float,
+    val drawnH: Float
+)
+
+private fun computeBitmapTransform(sheetSize: IntSize, bitmap: Bitmap): PageBitmapTransform {
+    val boxW = sheetSize.width.toFloat().coerceAtLeast(1f)
+    val boxH = sheetSize.height.toFloat().coerceAtLeast(1f)
+    val bmpW = bitmap.width.toFloat().coerceAtLeast(1f)
+    val bmpH = bitmap.height.toFloat().coerceAtLeast(1f)
+    val scale = minOf(boxW / bmpW, boxH / bmpH)
+    val drawnW = bmpW * scale
+    val drawnH = bmpH * scale
+    return PageBitmapTransform(
+        originX = (boxW - drawnW) / 2f,
+        originY = (boxH - drawnH) / 2f,
+        drawnW = drawnW,
+        drawnH = drawnH
+    )
+}
+
+private fun pixelToBitmapNormalized(
+    pixelOffset: Offset,
+    sheetSize: IntSize,
+    bitmap: Bitmap
+): Offset {
+    val tf = computeBitmapTransform(sheetSize, bitmap)
+    return Offset(
+        x = ((pixelOffset.x - tf.originX) / tf.drawnW).coerceIn(0f, 1f),
+        y = ((pixelOffset.y - tf.originY) / tf.drawnH).coerceIn(0f, 1f)
+    )
+}
+
+private fun findNearestWordIndex(
+    tokens: List<PageWordToken>,
+    normX: Float,
+    normY: Float
+): Int {
+    if (tokens.isEmpty()) return 0
+    val exactIdx = tokens.indexOfFirst { t ->
+        normX in (t.left - 0.01f)..(t.right + 0.01f) &&
+            normY in (t.top - 0.008f)..(t.bottom + 0.008f)
+    }
+    if (exactIdx >= 0) return exactIdx
+
+    return tokens.indices.minByOrNull { idx ->
+        val t = tokens[idx]
+        val dx = when {
+            normX < t.left -> t.left - normX
+            normX > t.right -> normX - t.right
+            else -> 0f
+        }
+        val dy = when {
+            normY < t.top -> t.top - normY
+            normY > t.bottom -> normY - t.bottom
+            else -> 0f
+        }
+        // Weight vertical line distance slightly higher so dragging along a line stays on that line
+        (dx * dx) + (dy * dy * 4.0f)
+    } ?: 0
+}
+
+private data class HighlightLineSpan(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+)
+
+private fun buildLineHighlightSpans(selectedTokens: List<PageWordToken>): List<HighlightLineSpan> {
+    if (selectedTokens.isEmpty()) return emptyList()
+    val spans = mutableListOf<HighlightLineSpan>()
+    var curLeft = selectedTokens[0].left
+    var curTop = selectedTokens[0].top
+    var curRight = selectedTokens[0].right
+    var curBottom = selectedTokens[0].bottom
+
+    for (i in 1 until selectedTokens.size) {
+        val next = selectedTokens[i]
+        val curMidY = (curTop + curBottom) / 2f
+        val nextMidY = (next.top + next.bottom) / 2f
+        val lineH = (curBottom - curTop).coerceAtLeast(0.012f)
+        val sameLine = abs(nextMidY - curMidY) < lineH * 0.72f && next.left >= curLeft - 0.05f
+        if (sameLine) {
+            curLeft = minOf(curLeft, next.left)
+            curTop = minOf(curTop, next.top)
+            curRight = maxOf(curRight, next.right)
+            curBottom = maxOf(curBottom, next.bottom)
+        } else {
+            spans += HighlightLineSpan(curLeft, curTop, curRight, curBottom)
+            curLeft = next.left
+            curTop = next.top
+            curRight = next.right
+            curBottom = next.bottom
+        }
+    }
+    spans += HighlightLineSpan(curLeft, curTop, curRight, curBottom)
+    return spans
+}
+
 @Composable
 private fun PdfPageSheet(
     bitmap: Bitmap?,
@@ -2033,12 +2579,23 @@ private fun PdfPageSheet(
     paperColor: Color,
     inkColor: Color,
     colorFilter: ColorFilter?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selection: ActivePageSelection? = null,
+    onUpdateSelection: (Int, Int) -> Unit = { _, _ -> },
+    onCopySelection: (String) -> Unit = {},
+    onSelectAllPage: () -> Unit = {},
+    onAddCommentSelection: (String) -> Unit = {},
+    onTranslateSelection: (String) -> Unit = {},
+    onWebSearchSelection: (String) -> Unit = {}
 ) {
+    var sheetSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(paperColor),
+            .background(paperColor)
+            .onSizeChanged { sheetSize = it },
         contentAlignment = Alignment.Center
     ) {
         if (bitmap != null) {
@@ -2049,6 +2606,197 @@ private fun PdfPageSheet(
                 colorFilter = colorFilter,
                 modifier = Modifier.fillMaxSize()
             )
+
+            if (selection != null && selection.tokens.isNotEmpty() && sheetSize.width > 0 && sheetSize.height > 0) {
+                val tf = remember(sheetSize, bitmap) { computeBitmapTransform(sheetSize, bitmap) }
+                val tokens = selection.tokens
+                val startIdx = selection.startIndex.coerceIn(0, tokens.lastIndex)
+                val endIdx = selection.endIndex.coerceIn(startIdx, tokens.lastIndex)
+                val selectedTokens = tokens.subList(startIdx, endIdx + 1)
+                val spans = remember(selectedTokens) { buildLineHighlightSpans(selectedTokens) }
+
+                val startToken = tokens[startIdx]
+                val endToken = tokens[endIdx]
+                val startAnchorPx = Offset(
+                    x = tf.originX + startToken.left * tf.drawnW,
+                    y = tf.originY + startToken.bottom * tf.drawnH
+                )
+                val endAnchorPx = Offset(
+                    x = tf.originX + endToken.right * tf.drawnW,
+                    y = tf.originY + endToken.bottom * tf.drawnH
+                )
+
+                val handleRadiusPx = with(density) { 12.dp.toPx() }
+                val handleTouchRadiusPx = with(density) { 32.dp.toPx() }
+                val handleColor = Color(0xFFC5A3FF)
+                val highlightBlue = Color(0xFF64B5F6).copy(alpha = 0.42f)
+
+                val latestStartIdx by rememberUpdatedState(startIdx)
+                val latestEndIdx by rememberUpdatedState(endIdx)
+                val latestStartAnchor by rememberUpdatedState(startAnchorPx)
+                val latestEndAnchor by rememberUpdatedState(endAnchorPx)
+                val latestOnUpdate by rememberUpdatedState(onUpdateSelection)
+
+                // Selection Highlight + Draggable Teardrop Handles Layer
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(tokens, sheetSize, bitmap) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val sAnchor = latestStartAnchor
+                                val eAnchor = latestEndAnchor
+                                val startCenter = Offset(sAnchor.x - handleRadiusPx * 0.7f, sAnchor.y + handleRadiusPx)
+                                val endCenter = Offset(eAnchor.x + handleRadiusPx * 0.7f, eAnchor.y + handleRadiusPx)
+                                val distStart = (down.position - startCenter).getDistance()
+                                val distEnd = (down.position - endCenter).getDistance()
+
+                                var draggingStart = when {
+                                    distStart <= handleTouchRadiusPx && distStart <= distEnd -> true
+                                    distEnd <= handleTouchRadiusPx -> false
+                                    else -> null
+                                } ?: return@awaitEachGesture
+
+                                down.consume()
+                                var curStart = latestStartIdx
+                                var curEnd = latestEndIdx
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                        ?: event.changes.firstOrNull()
+                                        ?: break
+                                    if (!change.pressed) {
+                                        change.consume()
+                                        break
+                                    }
+                                    change.consume()
+                                    val adjustedPos = Offset(
+                                        x = change.position.x,
+                                        y = (change.position.y - handleRadiusPx * 1.4f).coerceAtLeast(0f)
+                                    )
+                                    val norm = pixelToBitmapNormalized(adjustedPos, sheetSize, bitmap)
+                                    val hitIdx = findNearestWordIndex(tokens, norm.x, norm.y)
+                                    if (draggingStart) {
+                                        if (hitIdx <= curEnd) {
+                                            curStart = hitIdx
+                                        } else {
+                                            curStart = curEnd
+                                            curEnd = hitIdx
+                                            draggingStart = false
+                                        }
+                                    } else {
+                                        if (hitIdx >= curStart) {
+                                            curEnd = hitIdx
+                                        } else {
+                                            curEnd = curStart
+                                            curStart = hitIdx
+                                            draggingStart = true
+                                        }
+                                    }
+                                    latestOnUpdate(curStart, curEnd)
+                                }
+                            }
+                        }
+                ) {
+                    val padX = 3f
+                    val padY = 3f
+                    spans.forEach { span ->
+                        val leftPx = (tf.originX + span.left * tf.drawnW - padX).coerceAtLeast(0f)
+                        val topPx = (tf.originY + span.top * tf.drawnH - padY).coerceAtLeast(0f)
+                        val rightPx = (tf.originX + span.right * tf.drawnW + padX).coerceAtMost(size.width)
+                        val bottomPx = (tf.originY + span.bottom * tf.drawnH + padY).coerceAtMost(size.height)
+                        drawRoundRect(
+                            color = highlightBlue,
+                            topLeft = Offset(leftPx, topPx),
+                            size = Size((rightPx - leftPx).coerceAtLeast(4f), (bottomPx - topPx).coerceAtLeast(4f)),
+                            cornerRadius = CornerRadius(4f, 4f)
+                        )
+                    }
+
+                    // Start teardrop handle (tip at top-right pointing up to startAnchorPx)
+                    val sR = handleRadiusPx
+                    val sPath = Path().apply {
+                        moveTo(startAnchorPx.x, startAnchorPx.y)
+                        lineTo(startAnchorPx.x, startAnchorPx.y + sR)
+                        arcTo(
+                            rect = androidx.compose.ui.geometry.Rect(
+                                left = startAnchorPx.x - 2f * sR,
+                                top = startAnchorPx.y,
+                                right = startAnchorPx.x,
+                                bottom = startAnchorPx.y + 2f * sR
+                            ),
+                            startAngleDegrees = 0f,
+                            sweepAngleDegrees = 270f,
+                            forceMoveTo = false
+                        )
+                        lineTo(startAnchorPx.x, startAnchorPx.y)
+                        close()
+                    }
+                    drawPath(path = sPath, color = handleColor)
+
+                    // End teardrop handle (tip at top-left pointing up to endAnchorPx)
+                    val eR = handleRadiusPx
+                    val ePath = Path().apply {
+                        moveTo(endAnchorPx.x, endAnchorPx.y)
+                        lineTo(endAnchorPx.x + eR, endAnchorPx.y)
+                        arcTo(
+                            rect = androidx.compose.ui.geometry.Rect(
+                                left = endAnchorPx.x,
+                                top = endAnchorPx.y,
+                                right = endAnchorPx.x + 2f * eR,
+                                bottom = endAnchorPx.y + 2f * eR
+                            ),
+                            startAngleDegrees = -90f,
+                            sweepAngleDegrees = 270f,
+                            forceMoveTo = false
+                        )
+                        lineTo(endAnchorPx.x, endAnchorPx.y)
+                        close()
+                    }
+                    drawPath(path = ePath, color = handleColor)
+                }
+
+                // Floating White Pill Action Menu (Copy | Select All | Add comment | Translate | Web search)
+                var menuSize by remember { mutableStateOf(IntSize.Zero) }
+                val firstSpan = spans.first()
+                val lastSpan = spans.last()
+                val minLeftNorm = spans.minOf { it.left }
+                val maxRightNorm = spans.maxOf { it.right }
+                val centerXPx = tf.originX + ((minLeftNorm + maxRightNorm) / 2f) * tf.drawnW
+                val topLinePx = tf.originY + firstSpan.top * tf.drawnH
+                val bottomLinePx = tf.originY + lastSpan.bottom * tf.drawnH
+                val marginPx = with(density) { 8.dp.toPx() }
+                val aboveGapPx = with(density) { 12.dp.toPx() }
+                val belowGapPx = with(density) { 34.dp.toPx() }
+
+                val menuX = (centerXPx - menuSize.width / 2f).coerceIn(
+                    marginPx,
+                    (sheetSize.width - menuSize.width - marginPx).coerceAtLeast(marginPx)
+                )
+                val preferredAboveY = topLinePx - menuSize.height - aboveGapPx
+                val menuY = if (preferredAboveY >= marginPx) {
+                    preferredAboveY
+                } else {
+                    (bottomLinePx + belowGapPx).coerceAtMost(
+                        (sheetSize.height - menuSize.height - marginPx).coerceAtLeast(marginPx)
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    FloatingSelectionActionPill(
+                        maxWidthDp = with(density) { (sheetSize.width - 16.dp.toPx()).coerceAtLeast(220f).toDp() },
+                        onCopy = { onCopySelection(selection.selectedText) },
+                        onSelectAll = onSelectAllPage,
+                        onAddComment = { onAddCommentSelection(selection.selectedText) },
+                        onTranslate = { onTranslateSelection(selection.selectedText) },
+                        onWebSearch = { onWebSearchSelection(selection.selectedText) },
+                        modifier = Modifier
+                            .offset { IntOffset(menuX.roundToInt(), menuY.roundToInt()) }
+                            .onSizeChanged { menuSize = it }
+                    )
+                }
+            }
         } else {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -2060,6 +2808,284 @@ private fun PdfPageSheet(
                     style = MaterialTheme.typography.bodySmall,
                     color = inkColor.copy(alpha = 0.7f)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloatingSelectionActionPill(
+    maxWidthDp: androidx.compose.ui.unit.Dp,
+    onCopy: () -> Unit,
+    onSelectAll: () -> Unit,
+    onAddComment: () -> Unit,
+    onTranslate: () -> Unit,
+    onWebSearch: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = Color.White,
+        contentColor = Color(0xFF1F2329),
+        shadowElevation = 10.dp,
+        border = BorderStroke(1.dp, Color(0x16000000)),
+        modifier = modifier
+            .widthIn(max = maxWidthDp)
+            .testTag("floating_selection_pill_menu")
+    ) {
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SelectionMenuPillItem(
+                label = "Copy",
+                onClick = onCopy,
+                testTag = "selection_pill_copy"
+            )
+            VerticalDivider(
+                modifier = Modifier.height(18.dp),
+                color = Color(0x1A000000)
+            )
+            SelectionMenuPillItem(
+                label = "Select All",
+                onClick = onSelectAll,
+                testTag = "selection_pill_select_all"
+            )
+            VerticalDivider(
+                modifier = Modifier.height(18.dp),
+                color = Color(0x1A000000)
+            )
+            SelectionMenuPillItem(
+                label = "Add comment",
+                onClick = onAddComment,
+                testTag = "selection_pill_add_comment"
+            )
+            VerticalDivider(
+                modifier = Modifier.height(18.dp),
+                color = Color(0x1A000000)
+            )
+            SelectionMenuPillItem(
+                label = "Translate",
+                icon = Icons.Filled.Translate,
+                accentColor = MaterialTheme.colorScheme.primary,
+                onClick = onTranslate,
+                testTag = "selection_pill_translate"
+            )
+            VerticalDivider(
+                modifier = Modifier.height(18.dp),
+                color = Color(0x1A000000)
+            )
+            SelectionMenuPillItem(
+                label = "Web search",
+                icon = Icons.Filled.Public,
+                accentColor = MaterialTheme.colorScheme.secondary,
+                onClick = onWebSearch,
+                testTag = "selection_pill_web_search"
+            )
+        }
+    }
+}
+
+@Composable
+private fun SelectionMenuPillItem(
+    label: String,
+    onClick: () -> Unit,
+    testTag: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    accentColor: Color = Color(0xFF1F2329)
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag(testTag)
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = accentColor,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = accentColor,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun InlineTranslationOverlayCard(
+    selectedText: String,
+    targetLanguageTag: String,
+    translationState: LineTranslationUiState,
+    onChangeLanguage: () -> Unit,
+    onCopyTranslation: (String) -> Unit,
+    onListenTranslation: (String, String) -> Unit,
+    onWebSearch: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val activeLang = remember(targetLanguageTag) { WorldwideLanguages.findByTag(targetLanguageTag) }
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp,
+        shadowElevation = 12.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("inline_translation_card")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Translate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Translator",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onChangeLanguage)
+                            .testTag("inline_translator_language_pill")
+                    ) {
+                        Text(
+                            text = "${activeLang.displayName} ▾",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onWebSearch,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Public,
+                            contentDescription = "Web search selected text",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Close translator",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = selectedText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            when (translationState) {
+                is LineTranslationUiState.Idle,
+                is LineTranslationUiState.Loading -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "Translating into ${activeLang.displayName}…",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                is LineTranslationUiState.Error -> {
+                    Text(
+                        text = translationState.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                is LineTranslationUiState.Success -> {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = translationState.translatedText,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(
+                                    onClick = { onCopyTranslation(translationState.translatedText) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Copy")
+                                }
+                                TextButton(
+                                    onClick = { onListenTranslation(translationState.translatedText, translationState.languageTag) },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Listen")
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

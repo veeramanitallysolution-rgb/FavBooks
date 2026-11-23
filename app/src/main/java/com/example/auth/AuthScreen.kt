@@ -55,8 +55,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,8 +67,8 @@ import com.example.R
 import com.example.data.model.WorldwideLanguages
 import com.example.data.repository.ThemePreferencesStore
 import com.example.ui.components.WorldwideLanguageSheet
-import com.example.ui.theme.NavyMidGradientLight
-import com.example.ui.theme.NavyTopGradientLight
+import com.example.ui.theme.MidIceWashLight
+import com.example.ui.theme.TopIceWashLight
 import kotlinx.coroutines.launch
 
 private enum class AuthTabMode(val label: String) {
@@ -123,8 +126,8 @@ fun AuthScreen(
                 if (isLight) {
                     Modifier.background(
                         Brush.verticalGradient(
-                            0.0f to NavyTopGradientLight.copy(alpha = 0.72f),
-                            0.35f to NavyMidGradientLight.copy(alpha = 0.45f),
+                            0.0f to TopIceWashLight.copy(alpha = 0.85f),
+                            0.35f to MidIceWashLight.copy(alpha = 0.55f),
                             0.75f to backgroundColor
                         )
                     )
@@ -159,7 +162,7 @@ fun AuthScreen(
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.ic_bookshelf_logo),
-                        contentDescription = "Favbooks logo",
+                        contentDescription = "FavBooks logo",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxSize()
@@ -168,10 +171,10 @@ fun AuthScreen(
                 }
 
                 Text(
-                    text = stringResource(R.string.app_name),
+                    text = "FAVBOOKS",
                     style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isLight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                     textAlign = TextAlign.Center
                 )
 
@@ -383,9 +386,9 @@ fun AuthScreen(
 
                 Text(
                     text = if (authMode == AuthTabMode.CREATE_ACCOUNT) {
-                        "Creates your Favbooks Name Profile linked safely to Google"
+                        "Creates your FavBooks Name Profile linked safely to Google"
                     } else {
-                        "Sign in with Google to access your Favbooks library"
+                        "Sign in with Google to access your FavBooks library"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
